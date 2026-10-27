@@ -125,7 +125,7 @@ Testamos os 25 modelos de image-to-video do OpenRouter em quatro telas. O que im
 
 ## Instalação
 
-**Requisitos:** macOS (as miniaturas usam o `sips`), [uv](https://docs.astral.sh/uv/) com Python 3.11+, Node 20+, [Claude Code](https://claude.com/claude-code), uma chave do [OpenRouter](https://openrouter.ai/) e, para as capas dos vídeos, `ffmpeg`.
+**Requisitos:** macOS ou Windows (no Windows as miniaturas e as medidas saem do `ffmpeg`/`ffprobe`, que precisam estar no PATH: `winget install Gyan.FFmpeg`), [uv](https://docs.astral.sh/uv/) com Python 3.11+, Node 20+, [Claude Code](https://claude.com/claude-code), uma chave do [OpenRouter](https://openrouter.ai/) e, para as capas dos vídeos, `ffmpeg`.
 
 ```bash
 git clone https://github.com/rtadewald/neo-stitch.git

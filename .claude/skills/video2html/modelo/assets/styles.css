@@ -1,0 +1,32 @@
+/* Tokens no :root. Cor amostrada da reference.png (ou o token do design system do projeto), nunca de memória. */
+:root {
+  --palco-w: 1536px;
+  --palco-h: 864px;
+  --k: 1;               /* escala do palco, o vida.js calcula */
+  --fundo: #f4efe4;
+  --tinta: #14302a;
+  --acento: #1e9e6b;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--fundo); }
+
+.palco {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: var(--palco-w); height: var(--palco-h);
+  transform: translate(-50%, -50%) scale(var(--k));
+  transform-origin: 50% 50%;
+  overflow: hidden;
+}
+
+.placa { position: absolute; inset: 0; width: 100%; height: 100%; }
+.camada { position: absolute; pointer-events: none; }
+.camada-linhas { inset: 0; width: 100%; height: 100%; }
+
+/* tinta sobre papel: a camada escura multiplica, a clara (brilho) faz screen */
+.mult { mix-blend-mode: multiply; }
+.tela { mix-blend-mode: screen; }
+
+/* ?estatico: nenhuma transição, nada de cursor piscando */
+[data-estatico] *, [data-estatico] *::before, [data-estatico] *::after { transition: none !important; animation: none !important; }

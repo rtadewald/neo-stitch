@@ -223,7 +223,7 @@ def main() -> None:
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         resultados = list(ex.map(um, planos))
-    (saida / 'resultados.json').write_text(json.dumps({'prompt': prompt, 'imagem': str(img), 'resultados': resultados}, indent=1, ensure_ascii=False))
+    (saida / 'resultados.json').write_text(json.dumps({'prompt': prompt, 'imagem': str(img), 'resultados': resultados}, indent=1, ensure_ascii=False), encoding='utf-8')
     ok = [r for r in resultados if r['status'] == 'completed']
     print(f'{len(ok)}/{len(resultados)} prontos · custo ${sum(r.get("custo") or 0 for r in resultados):.2f}')
 

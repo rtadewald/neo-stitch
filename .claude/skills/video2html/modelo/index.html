@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOME · vN</title>
+  <!-- fontes: as da imagem (ou do design system do projeto), Google Fonts com display=block para não piscar -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500&display=block" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <!-- O palco tem o tamanho exato da reference.png e é escalado para caber na janela (vida.js).
+       Todas as coordenadas vêm da imagem. Cada coisa que o vida.md anima é uma camada própria, nunca assada na placa. -->
+  <main class="palco" id="palco">
+    <img class="placa" src="assets/placa.png" alt="">
+
+    <!-- camadas vivas: <img> com mix-blend-mode, <canvas> para partículas/WebGL, <svg> para linhas e pulsos -->
+    <canvas class="camada camada-nucleo" id="nucleo" width="0" height="0"></canvas>
+    <svg class="camada camada-linhas" id="linhas" viewBox="0 0 1536 864" aria-hidden="true"></svg>
+
+    <!-- texto e controles: HTML de verdade, calibrados pela caixa de tinta contra a imagem -->
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+  <script type="module" src="assets/vida.js"></script>
+</body>
+</html>

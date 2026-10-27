@@ -7,24 +7,38 @@ Cada projeto vive em projects/<slug>/:
     nodes/<COD>.json  um arquivo por nó (brief, tela, pedido, imagem, referencia)
     images/<COD>.png  · thumbs/<COD>.jpg · refs/<COD>.<ext> · lixeira/
 
-Contrato dos nós: .claude/skills/neo-stitch/modelo.md. Toda escrita passa por `travado(slug)` (fcntl) e `gravar_json`
-(temp + rename), então o servidor e os scripts do Claude nunca perdem a escrita um do outro.
+Contrato dos nós: .claude/skills/neo-stitch/modelo.md. Toda escrita passa por `travado(slug)` (fcntl, ou msvcrt no
+Windows) e `gravar_json` (temp + rename), então o servidor e os scripts do Claude nunca perdem a escrita um do outro.
 """
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unicodedata
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, date
 from pathlib import Path
+
+if os.name == 'nt':
+    import msvcrt
+else:
+    import fcntl
+
+# no Windows o console e os pipes saem em cp1252: acento passa, mas 🔥 e → derrubam o print
+for _saida in (sys.stdout, sys.stderr):
+    if _saida and (_saida.encoding or '').lower() not in ('utf-8', 'utf8'):
+        try:
+            _saida.reconfigure(encoding='utf-8')
+        except (AttributeError, ValueError):
+            pass
 
 RAIZ = Path(__file__).resolve().parent.parent
 PROJETOS = RAIZ / 'projects'
@@ -114,19 +128,53 @@ def gravar_json(caminho: Path, dados) -> None:
     caminho.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=caminho.parent, suffix='.tmp', delete=False) as f:
         json.dump(dados, f, ensure_ascii=False, indent=1)
-    os.replace(f.name, caminho)
+    # no Windows o rename falha enquanto alguém (o servidor servindo, o antivírus) está com o destino aberto: tenta de novo
+    for tentativa in range(50):
+        try:
+            os.replace(f.name, caminho)
+            return
+        except PermissionError:
+            if tentativa == 49:
+                raise
+            time.sleep(0.02)
+
+
+def _trancar(f) -> None:
+    if os.name == 'nt':
+        f.seek(0)
+        while True:  # LK_LOCK desiste em 10 s; aqui espera o quanto precisar, como o flock
+            try:
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                return
+            except OSError:
+                time.sleep(0.01)
+    fcntl.flock(f, fcntl.LOCK_EX)
+
+
+def _destrancar(f) -> None:
+    if os.name == 'nt':
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(f, fcntl.LOCK_UN)
+
+
+@contextmanager
+def trava_arquivo(caminho: Path):
+    with open(caminho, 'a+') as f:
+        _trancar(f)
+        try:
+            yield
+        finally:
+            _destrancar(f)
 
 
 @contextmanager
 def travado(slug: str):
     """Trava exclusiva do projeto (servidor e scripts): ler → mudar → gravar sem corrida."""
     pasta(slug).mkdir(parents=True, exist_ok=True)
-    with open(pasta(slug) / '.lock', 'w') as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+    with trava_arquivo(pasta(slug) / '.lock'):
+        yield
 
 
 # ---------- projetos ----------
@@ -372,26 +420,50 @@ def ouvinte_vivo() -> bool:
 
 def enfileirar(slug: str, id_: str, acao: str) -> None:
     linha = json.dumps({'ts': agora(), 'projeto': slug, 'id': id_, 'acao': acao}, ensure_ascii=False)
-    with open(FILA, 'a', encoding='utf-8') as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+    # trava num arquivo à parte: no Windows a trava é obrigatória e o tail -F do ouvinte não pode tropeçar nela
+    with trava_arquivo(RAIZ / '.fila.lock'), open(FILA, 'a', encoding='utf-8', newline='\n') as f:
         f.write(linha + '\n')
-        fcntl.flock(f, fcntl.LOCK_UN)
 
 
 # ---------- arquivos ----------
+# sips no macOS (sem dependências); no resto, ffmpeg/ffprobe no PATH
+
+def _ffmpeg(*args: str) -> None:
+    if not shutil.which('ffmpeg'):
+        raise RuntimeError('ffmpeg não encontrado no PATH (instale: winget install Gyan.FFmpeg)')
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', *args], capture_output=True, check=True)
+
 
 def miniatura(origem: Path, destino: Path, lado: int = 640) -> None:
-    """JPEG reduzido com o sips do macOS (sem dependências)."""
+    """JPEG reduzido: o lado maior vira `lado`."""
     destino.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(['sips', '-s', 'format', 'jpeg', '-s', 'formatOptions', '82', '-Z', str(lado), str(origem),
-                    '--out', str(destino)], capture_output=True, check=True)
+    if shutil.which('sips'):
+        subprocess.run(['sips', '-s', 'format', 'jpeg', '-s', 'formatOptions', '82', '-Z', str(lado), str(origem),
+                        '--out', str(destino)], capture_output=True, check=True)
+        return
+    _ffmpeg('-i', str(origem), '-vf', f'scale={lado}:{lado}:force_original_aspect_ratio=decrease', '-frames:v', '1',
+            '-q:v', '3', str(destino))
+
+
+def para_png(origem: Path, destino: Path) -> None:
+    if shutil.which('sips'):
+        subprocess.run(['sips', '-s', 'format', 'png', str(origem), '--out', str(destino)], capture_output=True, check=True)
+        return
+    _ffmpeg('-i', str(origem), '-frames:v', '1', str(destino))
 
 
 def medidas(arquivo: Path) -> tuple[int, int] | None:
-    r = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', str(arquivo)], capture_output=True, text=True)
-    w = re.search(r'pixelWidth:\s*(\d+)', r.stdout)
-    h = re.search(r'pixelHeight:\s*(\d+)', r.stdout)
-    return (int(w.group(1)), int(h.group(1))) if w and h else None
+    if shutil.which('sips'):
+        r = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', str(arquivo)], capture_output=True, text=True)
+        w = re.search(r'pixelWidth:\s*(\d+)', r.stdout)
+        h = re.search(r'pixelHeight:\s*(\d+)', r.stdout)
+        return (int(w.group(1)), int(h.group(1))) if w and h else None
+    if not shutil.which('ffprobe'):
+        return None
+    r = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+                        '-of', 'csv=p=0:s=x', str(arquivo)], capture_output=True, text=True)
+    m = re.match(r'(\d+)x(\d+)', r.stdout.strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def para_lixeira(slug: str, id_: str, junto: list[str] | None = None) -> None:

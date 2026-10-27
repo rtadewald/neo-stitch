@@ -134,7 +134,9 @@ O alvo é uma página que **responde a tudo**, no nível do
   personagem olha para o mouse), e o ocioso do vídeo vira uma função que a interação também chama.
 - Desempenho e acessibilidade não são prioridade agora.
 
-Quem tem a skill `video2html` (Claude Code) segue o método dela; os outros seguem esta seção.
+O método completo, com os scripts que medem a fidelidade e o movimento, está na skill
+[`video2html`](../.claude/skills/video2html/SKILL.md). Qualquer agente pode ler o SKILL.md e rodar os scripts dela
+(`uv run .claude/skills/video2html/scripts/…`); quem não puder segue ao menos esta seção.
 
 ## 8. Como aparece no app
 

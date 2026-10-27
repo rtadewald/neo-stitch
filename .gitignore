@@ -1,6 +1,7 @@
 projects/
 fila.jsonl
 .ouvinte
+.fila.lock
 .env
 __pycache__/
 app/node_modules/

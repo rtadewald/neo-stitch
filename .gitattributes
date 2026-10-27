@@ -1,0 +1,2 @@
+# o bash (Git Bash, Monitor do Claude) quebra com CRLF
+*.sh text eol=lf

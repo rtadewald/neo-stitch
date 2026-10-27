@@ -80,7 +80,8 @@ O pedido nasce no canvas e mantém a linhagem. Projeto novo pelo chat: `neo.py n
 ## 6. Implementações (HTML)
 
 Imagem → HTML estático: skill `img-to-html`. Imagem + vídeo aprovado → HTML vivo e interativo: skill `video2html`
-(`/video2html JAR-154`). As duas gravam em `projects/<slug>/impl/<código da imagem>/vN/`, e a página 🔥 da imagem mostra as versões.
+(`.claude/skills/video2html/SKILL.md`, `/video2html AZE-014`): leia antes de implementar qualquer vídeo, ela tem a régua
+(estático ≤ 5/255, energia por região, checar.py) que a versão precisa passar. As duas gravam em `projects/<slug>/impl/<código da imagem>/vN/`, e a página 🔥 da imagem mostra as versões.
 
 Outros agentes (Codex, OpenCode…) também implementam vídeos: a spec é `docs/AGENTES.md`. Toda versão, inclusive as do Claude, é
 reservada e reportada com `uv run ferramentas/impl.py iniciar <VÍDEO> --agente "Claude Opus 5.5"` · `etapa <IMG/vN> "…" --progresso 0.x`

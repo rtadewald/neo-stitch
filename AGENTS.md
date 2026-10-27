@@ -135,7 +135,7 @@ O passo a passo completo, o contrato `impl.json` e o padrão de qualidade estão
 | Para | Leia |
 |---|---|
 | implementar um vídeo como HTML (qualquer agente) | [docs/AGENTES.md](docs/AGENTES.md) |
-| o método de vídeo → HTML do Claude Code | skill `video2html` |
+| o método de vídeo → HTML (com os scripts de medição) | skill `video2html` (`.claude/skills/video2html/SKILL.md`) |
 | operar o canvas (fila, prompts, geração) | skill `neo-stitch` (`.claude/skills/neo-stitch/SKILL.md`) |
 | o contrato de cada tipo de nó | [.claude/skills/neo-stitch/modelo.md](.claude/skills/neo-stitch/modelo.md) |
 | usar o app (atalhos, páginas, visualizador) | [docs/USO.md](docs/USO.md) |

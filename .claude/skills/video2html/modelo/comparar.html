@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparar · vídeo × página</title>
+<style>
+  :root { --fundo: #16150f; --texto: #ece7da; --borda: #383327; --acento: #2fb37c; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--fundo); color: var(--texto); font: 13px/1.4 system-ui, sans-serif; padding: 16px; }
+  .barra { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .lado { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pilha { position: relative; }
+  video { width: 100%; display: block; border: 1px solid var(--borda); }
+  .pilha video + video { position: absolute; inset: 0; }
+  .modo-lado .pilha { display: none; } .modo-pilha .lado { display: none; }
+  button { background: none; color: var(--texto); border: 1px solid var(--borda); padding: 4px 10px; cursor: pointer; }
+  button[aria-pressed="true"] { border-color: var(--acento); color: var(--acento); }
+  input[type=range] { accent-color: var(--acento); }
+</style>
+</head>
+<body class="modo-lado">
+  <!-- Abra pelo servidor do Neo Stitch: .../impl/<IMG>/vN/comparar.html
+       ?ref=analise/video-ref.mp4&html=verificacao/html.mp4 (são os padrões). Os dois vídeos andam no mesmo relógio. -->
+  <div class="barra">
+    <button id="tocar">▶ / ❚❚</button>
+    <span>← → um quadro · espaço toca</span>
+    <button id="lado" aria-pressed="true">lado a lado</button>
+    <button id="pilha" aria-pressed="false">sobrepor</button>
+    <label>página por cima <input id="opac" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+    <label><input id="dif" type="checkbox"> diferença</label>
+    <span id="t">0.00 s</span>
+  </div>
+  <div class="lado"><video id="a1" muted playsinline></video><video id="b1" muted playsinline></video></div>
+  <div class="pilha"><video id="a2" muted playsinline></video><video id="b2" muted playsinline></video></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const ref = q.get('ref') || 'analise/video-ref.mp4', html = q.get('html') || 'verificacao/html.mp4';
+  const [a1, b1, a2, b2] = ['a1', 'b1', 'a2', 'b2'].map(id => document.getElementById(id));
+  a1.src = a2.src = ref; b1.src = b2.src = html;
+  const todos = [a1, b1, a2, b2], mestre = a1;
+  const seguir = () => { for (const v of todos) if (v !== mestre && Math.abs(v.currentTime - mestre.currentTime) > 0.03) v.currentTime = mestre.currentTime;
+    document.getElementById('t').textContent = mestre.currentTime.toFixed(2) + ' s'; };
+  mestre.addEventListener('timeupdate', seguir); mestre.addEventListener('seeked', seguir);
+  mestre.loop = true;
+  const tocar = () => { if (mestre.paused) todos.forEach(v => v.play()); else todos.forEach(v => v.pause()); };
+  const passo = d => { todos.forEach(v => v.pause()); mestre.currentTime = Math.max(0, mestre.currentTime + d); seguir(); };
+  document.getElementById('tocar').onclick = tocar;
+  addEventListener('keydown', e => { if (e.key === ' ') { e.preventDefault(); tocar(); }
+    if (e.key === 'ArrowRight') passo(1 / 24); if (e.key === 'ArrowLeft') passo(-1 / 24); });
+  const modo = m => { document.body.className = 'modo-' + m;
+    document.getElementById('lado').setAttribute('aria-pressed', m === 'lado'); document.getElementById('pilha').setAttribute('aria-pressed', m === 'pilha'); };
+  document.getElementById('lado').onclick = () => modo('lado');
+  document.getElementById('pilha').onclick = () => modo('pilha');
+  document.getElementById('opac').oninput = e => { b2.style.opacity = e.target.value; };
+  document.getElementById('dif').onchange = e => { b2.style.mixBlendMode = e.target.checked ? 'difference' : 'normal'; b2.style.opacity = e.target.checked ? 1 : document.getElementById('opac').value; };
+  b2.style.opacity = 0.5;
+</script>
+</body>
+</html>

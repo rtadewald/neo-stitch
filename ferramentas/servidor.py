@@ -57,6 +57,10 @@ CAMPOS_APP = {
 }
 MIDIA = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp4', '.webm', '.bin', '.glb'}
 mimetypes.add_type('model/gltf-binary', '.glb')
+# o mimetypes do Windows lê o registro, que às vezes diz text/plain para .js (e o navegador recusa o módulo)
+for _tipo, _ext in (('text/javascript', '.js'), ('text/javascript', '.mjs'), ('text/css', '.css'),
+                    ('image/svg+xml', '.svg'), ('application/json', '.json'), ('application/wasm', '.wasm')):
+    mimetypes.add_type(_tipo, _ext)
 EXTENSOES = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif'}
 
 ROTAS: list[tuple[str, re.Pattern, Callable]] = []
