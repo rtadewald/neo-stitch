@@ -36,7 +36,7 @@ brief → telas → pedidos → imagens → pedidos → imagens…
 - O pai de um pedido é a **imagem ou o vídeo de onde ele saiu** (1ª entrada que é imagem ou vídeo); sem isso, a 1ª
   referência (que pende da tela); sem entradas, a tela. Entradas extras viram arestas tracejadas (recombinação).
 - Imagens, vídeos e modelos penduram no pedido que os gerou. A cadeia de uma implementação: imagem → pedido de vídeo →
-  vídeo → pedido de assets → imagens (placa, personagem limpo) → pedido 3D → modelos → (página, no 🔥).
+  vídeo → pedido de assets → imagens (placa, personagem limpo) → pedido 3D → modelos → (página: o nó de HTML).
 - `recolhido: true` em qualquer nó fecha o galho dele; `escondidos: [ids]` esconde só esses filhos (o ⌘A "ir para as aprovadas" usa isso). O app mostra "+N" na pílula.
 - `desloc: {x, y}` = ajuste manual do usuário sobre a posição automática; vale para o nó e todo o galho dele (arrastar um
   nó leva os filhos junto). `null` volta ao lugar automático. Referências soltas (fora da árvore) usam `pos` absoluta;

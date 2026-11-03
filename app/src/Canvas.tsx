@@ -4,31 +4,33 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
-  ArrowUp, BadgeCheck, BookOpen, CircleDot, Clapperboard, ListTree, Check, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, FileText, GitBranchPlus, ImagePlus,
-  LayoutGrid, Maximize, Maximize2, Monitor, Star, Trash2, UnfoldHorizontal, X,
+  ArrowUp, BadgeCheck, BookOpen, Bot, CircleDot, Clapperboard, Pin, PinOff, Check, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, FileText, GitBranchPlus, ImagePlus,
+  Focus, LayoutGrid, AlignVerticalDistributeCenter, Maximize, Maximize2, Monitor, Trash2, UnfoldHorizontal, X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, arquivoUrl, dinheiro, type Estado, type No } from './api'
+import { api, arquivoUrl, dinheiro, rotaVista, type Estado, type No } from './api'
 import { CanvasCtx, type Ctx } from './ctx'
-import { TrilhoFogo } from './Fogo'
-import { arestas, arvore, caminhoAprovadas, descendentes, ehPonto, galhoCompleto, layoutArvore, medida, ocultosSob, type ModoLayout } from './layout'
+import { arestas, arvore, caminhoAprovadas, descendentes, ehPonto, galhoCompleto, layoutArvore, medida, nosDeSite, ocultosSob, recorte, type ModoLayout } from './layout'
 import { Menu, type ItemMenu } from './Menu'
 import { nodeTypes, type NoRF } from './nodes'
 import { Painel } from './Painel'
+import { SpecAgentes } from './Spec'
+import { Trilho } from './Trilho'
 import { useHistorico } from './useHistorico'
 import { useProjeto } from './useProjeto'
 import { Viewer } from './Viewer'
 
-export function Canvas({ slug }: { slug: string }) {
+/** O canvas do projeto. Com `raiz` (uma vista, #/p/<slug>/f/<código>), é o mesmo canvas recortado: o nó e tudo o que saiu dele. */
+export function Canvas({ slug, raiz }: { slug: string; raiz?: string }) {
   return (
     <ReactFlowProvider>
-      <CanvasInterno slug={slug} />
+      <CanvasInterno slug={slug} raiz={raiz} />
     </ReactFlowProvider>
   )
 }
 
-function CanvasInterno({ slug }: { slug: string }) {
-  const { estado, erro, setErro, mudar: mudarCru, posicoes: posicoesCru, acao } = useProjeto(slug)
+function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
+  const { estado, erro, setErro, carregar, mudar: mudarCru, posicoes: posicoesCru, acao } = useProjeto(slug)
   const rf = useReactFlow()
   const [nodes, setNodes] = useState<NoRF[]>([])
   const [selecao, setSelecao] = useState<string[]>([])
@@ -40,8 +42,8 @@ function CanvasInterno({ slug }: { slug: string }) {
   const [aviso, setAviso] = useState<string | null>(null)
   const [selecionando, setSelecionando] = useState(false)
   const [confirmar, setConfirmar] = useState<string[] | null>(null)
+  const [spec, setSpec] = useState(false)
   const [organizar, setOrganizar] = useState(false)
-  const [niveis, setNiveis] = useState(false)
   const enquadrarDepois = useRef(false)
   const [caixa, setCaixa] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const caixaAtiva = useRef(false)  // uma caixa de seleção em andamento não é interrompida se o ⌘ for solto no meio
@@ -53,15 +55,46 @@ function CanvasInterno({ slug }: { slug: string }) {
   const arrastando = useRef(new Set<string>())
   const [medidas, setMedidas] = useState(() => new Map<string, { w: number; h: number }>())
 
+  // acima de 100% de zoom, os controles dos cartões (ações, rodapé, marcas) ficam do tamanho da tela: --inv = 1/zoom
+  const raizCanvas = useRef<HTMLDivElement>(null)
+  const contraZoom = useCallback((z: number) => { raizCanvas.current?.style.setProperty('--inv', String(1 / Math.max(1, z))) }, [])
   const limparSelecao = useCallback(() => setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))), [])
-  const nos = useMemo(() => estado?.nos || [], [estado])
-  const porId = useMemo(() => new Map(nos.map((n) => [n.id, n])), [nos])
+  // todos os nós do projeto + as versões de HTML (montadas dos avanços); `nos` é o que esta vista mostra
+  const todos = useMemo(() => (estado ? [...estado.nos, ...nosDeSite(estado)] : []), [estado])
+  const porId = useMemo(() => new Map(todos.map((n) => [n.id, n])), [todos])
   const porIdRef = useRef(porId)
   porIdRef.current = porId
   const lerPorId = useCallback(() => porIdRef.current, [])
   const historico = useHistorico({ slug, porId: lerPorId, mudar: mudarCru, posicoes: posicoesCru, acao })
-  const { mudar, posicoes, apagar: apagarDeVez, emLote } = historico
-  const arv = useMemo(() => arvore(nos), [nos])
+  const { posicoes, apagar: apagarDeVez, emLote, passo } = historico
+  // o HTML não é um arquivo de nó: por aqui só o deslocamento do card (arrastar, ⌘Z), que vai para o impl.json; o estado
+  // dele vai pelos botões do card
+  const mudarHist = historico.mudar
+  const mudar = useCallback((id: string, c: Partial<No>) =>
+    (lerPorId().get(id)?.tipo === 'site' && !('desloc' in c) ? Promise.resolve() : mudarHist(id, c)),
+    [lerPorId, mudarHist])
+  const arvTodos = useMemo(() => arvore(todos), [todos])
+  const recortado = !!raiz && porId.has(raiz)
+  const [filtrouRaiz, setFiltrouRaiz] = useState(false)
+  // abrir uma vista a põe no topo do histórico (se não estiver pinada)
+  const registrada = useRef(false)
+  useEffect(() => {
+    if (!recortado || registrada.current) return
+    registrada.current = true
+    api.vista(slug, 'abrir', raiz!).then(() => carregar(true)).catch(() => {})
+  }, [recortado, slug, raiz, carregar])
+  const mudarVista = useCallback((a: 'pinar' | 'despinar', id: string) => { acao(() => api.vista(slug, a, id)) }, [acao, slug])
+  const abrirVista = useCallback((id: string) => { location.hash = rotaVista(slug, id) }, [slug])
+  const nos = useMemo(() => {
+    if (!recortado) return todos
+    const dentro = recorte(arvTodos, raiz!, todos)
+    // a raiz sempre abre (a vista existe para mostrar o que saiu dela) e é a raiz da árvore, mesmo se tiver posição própria
+    // ao abrir, a raiz mostra tudo; depois de filtrar ou recolher aqui dentro (⌘A, níveis, galho), passa a valer o que foi gravado nela
+    return todos.filter((n) => dentro.has(n.id)).map((n) => (n.id !== raiz ? n
+      : filtrouRaiz ? { ...n, pos: null, desloc: null } : { ...n, recolhido: false, escondidos: [], pos: null, desloc: null }))
+  }, [todos, arvTodos, recortado, raiz, filtrouRaiz])
+  const arv = useMemo(() => (recortado ? arvore(nos) : arvTodos), [recortado, nos, arvTodos])
+  const videosRecorte = useMemo(() => (recortado ? nos.filter((n) => n.tipo === 'video' && n.arquivo) : []), [recortado, nos])
   const [modoLocal, setModoLocal] = useState<ModoLayout | null>(null)
   const modo: ModoLayout = modoLocal || estado?.projeto.layout || 'pilha'
   const trocarModo = useCallback(async (v: ModoLayout) => {
@@ -69,10 +102,12 @@ function CanvasInterno({ slug }: { slug: string }) {
     await acao(() => api.mudarProjeto(slug, { layout: v }))
     setModoLocal(null)
   }, [acao, slug])
+  const [compactoLocal, setCompactoLocal] = useState<boolean | null>(null)
+  const compacto = compactoLocal ?? !!estado?.projeto.compacto
 
   // apagar sempre pergunta antes; leva o galho inteiro (o ⌘Z traz de volta)
   const apagar = useCallback(async (ids: string | string[]) => {
-    const lista = (Array.isArray(ids) ? ids : [ids]).filter((id) => porId.get(id) && porId.get(id)!.tipo !== 'brief')
+    const lista = (Array.isArray(ids) ? ids : [ids]).filter((id) => porId.get(id) && porId.get(id)!.tipo !== 'brief' && porId.get(id)!.tipo !== 'site')
     const set = new Set(lista)
     const raizes = lista.filter((id) => {
       for (let p = arv.pai.get(id); p; p = arv.pai.get(p)) if (set.has(p)) return false
@@ -90,8 +125,8 @@ function CanvasInterno({ slug }: { slug: string }) {
 
   // a árvore se arranja sozinha (galhos recolhidos somem); só referências soltas guardam posição
   const posicoesArvore = useMemo(
-    () => layoutArvore(nos, arv, medidas, (n) => esconder && n.tipo === 'imagem' && n.estado === 'descartada', modo, pontos),
-    [nos, arv, medidas, esconder, modo, pontos],
+    () => layoutArvore(nos, arv, medidas, (n) => esconder && (n.tipo === 'imagem' || n.tipo === 'site') && n.estado === 'descartada', modo, pontos, compacto),
+    [nos, arv, medidas, esconder, modo, pontos, compacto],
   )
   // o ajuste manual (arrastar) é um deslocamento sobre a posição automática, herdado por todo o galho
   const posicoesFinais = useMemo(() => {
@@ -134,7 +169,9 @@ function CanvasInterno({ slug }: { slug: string }) {
       return visiveis.map((no) => {
         const a = antes.get(no.id)
         const pos = arrastando.current.has(no.id) && a ? a.position : posicoesFinais[no.id]
-        return { id: no.id, type: no.tipo, position: pos, data: { no }, selected: a?.selected ?? false }
+        return { id: no.id, type: no.tipo, position: pos, data: { no }, selected: a?.selected ?? false,
+          // a versão de HTML antiga (sem impl.json) não tem onde guardar a posição
+          draggable: no.tipo !== 'site' || !!no.site?.trabalho }
       })
     })
   }, [visiveis, posicoesFinais])
@@ -170,8 +207,10 @@ function CanvasInterno({ slug }: { slug: string }) {
       .map((a) => {
         const alvo = porId.get(a.para)
         const vivo = alvo?.tipo === 'pedido' && (alvo.status === 'trabalhando' || alvo.status === 'enviado') ||
-          (alvo?.tipo === 'imagem' || alvo?.tipo === 'video') && alvo.gerando
-        return { id: `${a.de}>${a.para}`, source: a.de, target: a.para, animated: !!vivo, className: `aresta ${a.tipo}` }
+          (alvo?.tipo === 'imagem' || alvo?.tipo === 'video') && alvo.gerando || alvo?.site?.trabalho?.status === 'trabalhando'
+        // o que leva a um HTML é verde-azulado; de uma versão para a evolução dela, tracejado
+        const site = alvo?.tipo === 'site' ? ` deriva${porId.get(a.de)?.tipo === 'site' ? ' evolucao' : ''}` : ''
+        return { id: `${a.de}>${a.para}`, source: a.de, target: a.para, animated: !!vivo, className: `aresta ${a.tipo}${site}` }
       })
   }, [visiveis, porId, arv])
 
@@ -273,7 +312,7 @@ function CanvasInterno({ slug }: { slug: string }) {
     setSelecao((a) => (a.length === ids.length && a.every((x, i) => x === ids[i]) ? a : ids))
   }, [])
 
-  const telaPadrao = useCallback(() => nos.find((n) => n.tipo === 'tela')?.id, [nos])
+  const telaPadrao = useCallback(() => todos.find((n) => n.tipo === 'tela')?.id, [todos])
 
   const novoPedido = useCallback(
     async (entradas: string[], tela?: string, extra?: Partial<No>) => {
@@ -290,8 +329,8 @@ function CanvasInterno({ slug }: { slug: string }) {
 
   const pedidoVideo = useCallback((img: string) => novoPedido([img], undefined, { midia: 'video' }), [novoPedido])
   const novaTela = useCallback(
-    () => acao(() => api.criarNo(slug, { tipo: 'tela', titulo: `Tela ${nos.filter((n) => n.tipo === 'tela').length + 1}` })),
-    [acao, slug, nos],
+    () => acao(() => api.criarNo(slug, { tipo: 'tela', titulo: `Tela ${todos.filter((n) => n.tipo === 'tela').length + 1}` })),
+    [acao, slug, todos],
   )
   const enviar = useCallback(async (id: string) => { await acao(() => api.enviar(slug, id)) }, [acao, slug])
 
@@ -344,6 +383,7 @@ function CanvasInterno({ slug }: { slug: string }) {
   // 1 = as primeiras imagens (os pedidos que saem delas ficam recolhidos) · 2 = + os pedidos delas e as imagens desses · 3 = …
   // nível: imagem = imagens no caminho até a raiz (contando ela); pedido = imagens acima + 1; brief/tela/referência = 0.
   const recolherNivel = useCallback((n: number) => {
+    setFiltrouRaiz(true)
     const imgsAcima = new Map<string, number>()
     const contar = (id: string): number => {
       if (imgsAcima.has(id)) return imgsAcima.get(id)!
@@ -370,9 +410,10 @@ function CanvasInterno({ slug }: { slug: string }) {
 
   // ⌘A: recolhe tudo o que não leva a uma imagem aprovada (uma ação comum: dá para expandir de volta, e o ⌘Z desfaz)
   const irParaAprovados = useCallback(() => {
-    const fogo = new Set(Object.keys(estado?.avancos || {}))  // as com fogo (viraram vídeo/HTML) também são ativas
-    const caminho = caminhoAprovadas(nos, arv, fogo)
-    if (!nos.some((n) => n.tipo === 'imagem' && (n.estado === 'aprovada' || fogo.has(n.id)))) { setAviso('Nenhuma imagem aprovada ainda'); return }
+    setFiltrouRaiz(true)
+    const pinados = new Set(estado?.vistas.pinados || [])      // o filtro mostra os aprovados e os pinados
+    const caminho = caminhoAprovadas(nos, arv, pinados)
+    if (!nos.some((n) => (n.tipo === 'imagem' && n.estado === 'aprovada') || pinados.has(n.id))) { setAviso('Nada aprovado nem pinado ainda'); return }
     emLote(() => {
       for (const n of nos) {
         const filhos = arv.filhos.get(n.id) || []
@@ -383,8 +424,8 @@ function CanvasInterno({ slug }: { slug: string }) {
       }
     })
     enquadrarDepois.current = true
-    setAviso('Só o caminho até as aprovadas e as com fogo · ⌘Z desfaz')
-  }, [nos, arv, estado?.avancos, emLote, mudar])
+    setAviso('Só o caminho até os aprovados e os pinados · ⌘Z desfaz')
+  }, [nos, arv, estado?.vistas.pinados, emLote, mudar])
 
   // ⌘Z desfaz, ⌘⇧Z (ou ⌘Y) refaz — fora dos campos de texto, que têm o próprio desfazer
   useEffect(() => {
@@ -392,6 +433,9 @@ function CanvasInterno({ slug }: { slug: string }) {
       if (!(e.metaKey || e.ctrlKey)) return
       if (e.target instanceof Element && e.target.closest('textarea, input, select')) return
       const k = e.key.toLowerCase()
+      // ⌘+ / ⌘− dão zoom no canvas (em vez do zoom da página do navegador)
+      if (k === '=' || k === '+') { e.preventDefault(); rf.zoomIn({ duration: 160 }); return }
+      if (k === '-' || k === '_') { e.preventDefault(); rf.zoomOut({ duration: 160 }); return }
       if (k === 'a') { e.preventDefault(); irParaAprovados(); return }  // ⌘A: só aprovados (em vez de selecionar a página)
       if (k === '1' || k === '2' || k === '3') { e.preventDefault(); recolherNivel(Number(k)); return }
       const refaz = (k === 'z' && e.shiftKey) || k === 'y'
@@ -402,7 +446,7 @@ function CanvasInterno({ slug }: { slug: string }) {
     }
     window.addEventListener('keydown', tecla)
     return () => window.removeEventListener('keydown', tecla)
-  }, [historico, irParaAprovados, recolherNivel])
+  }, [historico, irParaAprovados, recolherNivel, rf])
 
   // ⌘ segurado: liga a camada de seleção (⌘ + arrastar = caixa; ⌘ + clique = põe/tira o nó da seleção)
   useEffect(() => {
@@ -422,15 +466,14 @@ function CanvasInterno({ slug }: { slug: string }) {
   }, [])
 
 
-  // atalhos: F favorita, A aprova, D descarta, N novo pedido (com a seleção), Esc limpa
+  // atalhos: A aprova (o verde), D descarta, N novo pedido (com a seleção), Esc limpa
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       if (e.target instanceof Element && e.target.closest('textarea, input, select')) return
       if (e.metaKey || e.ctrlKey || visto) return
       const k = e.key.toLowerCase()
       if ((k === '1' || k === '2' || k === '3') && !e.shiftKey && !e.altKey) { recolherNivel(Number(k)); return }
-      if (k === 'f' && soImagens.length) marcar(soImagens, 'favorita')
-      else if (k === 'a' && soImagens.length) marcar(soImagens, 'aprovada')
+      if (k === 'a' && soImagens.length) marcar(soImagens, 'aprovada')
       else if (k === 'd' && soImagens.length) marcar(soImagens, 'descartada')
       else if (k === 'n' && imgsSel.length) { e.preventDefault(); novoPedido(imgsSel.map((n) => n.id)) }
       else if (k === 'v' && soImagens.length === 1) { e.preventDefault(); pedidoVideo(soImagens[0].id) }
@@ -499,15 +542,35 @@ function CanvasInterno({ slug }: { slug: string }) {
 
   const recolhidos = useMemo(() => nos.filter((n) => n.recolhido || (n.escondidos || []).length), [nos])
   const deslocados = useMemo(() => nos.filter((n) => n.desloc && (n.desloc.x || n.desloc.y)), [nos])
+  // Otimizar espaço: liga o layout compacto (os galhos sobem para os vãos) e desfaz os ajustes manuais desta vista — na 1ª vez,
+  // de todo o projeto, porque todas as posições automáticas mudam. ⌘Z desfaz tudo junto.
+  const distribuir = useCallback(async () => {
+    const alvo = (compacto ? nos : todos).filter((n) => n.desloc && (n.desloc.x || n.desloc.y))
+    await emLote(async () => {
+      if (!compacto) {
+        const ligar = async (v: boolean) => {
+          setCompactoLocal(v)
+          await acao(() => api.mudarProjeto(slug, { compacto: v }))
+          setCompactoLocal(null)
+        }
+        passo({ desfazer: () => ligar(false), refazer: () => ligar(true) })
+        await ligar(true)
+      }
+      for (const n of alvo) await mudar(n.id, { desloc: null })
+    })
+    enquadrarDepois.current = true
+  }, [compacto, nos, todos, emLote, passo, acao, slug, mudar])
   const expandirTudo = useCallback(
     () => emLote(() => recolhidos.forEach((n) => mudar(n.id, { recolhido: false, escondidos: [] }))), [emLote, recolhidos, mudar])
   // a pílula/botão do galho: se algo está escondido, mostra tudo; senão, recolhe o galho inteiro
   const alternar = useCallback((id: string) => {
-    const n = porId.get(id)
+    // a raiz da vista: vale o que ela mostra agora (a cópia de `nos`), não o que está gravado nela
+    const n = id === raiz ? nos.find((x) => x.id === id) : porId.get(id)
     if (!n) return
+    if (id === raiz) setFiltrouRaiz(true)
     if (ocultosSob(arv, n)) mudar(id, { recolhido: false, escondidos: [] })
     else mudar(id, { recolhido: true })
-  }, [porId, arv, mudar])
+  }, [porId, nos, raiz, arv, mudar])
 
   // ---------- botão direito ----------
   const telaMaisProxima = (p: { x: number; y: number }) => {
@@ -552,6 +615,11 @@ function CanvasInterno({ slug }: { slug: string }) {
       icone: ocultosSob(arv, no) ? <ChevronRight size={15} /> : <ChevronLeft size={15} />, acao: () => alternar(no.id),
     }] : []
     const codigo: ItemMenu = { rotulo: `Copiar código ${no.id}`, icone: <Copy size={15} />, acao: () => copiar(no.id) }
+    // vistas: abrir o canvas a partir deste nó; pinar (a barra lateral; independe do aprovado)
+    const abrirDaqui: ItemMenu[] = raiz === no.id ? [] : [{ rotulo: 'Abrir a partir daqui', icone: <Focus size={15} />, acao: () => abrirVista(no.id) }]
+    const pinado = estado!.vistas.pinados.includes(no.id)
+    const pinItem: ItemMenu = { rotulo: pinado ? 'Despinar' : 'Pinar', icone: pinado ? <PinOff size={15} /> : <Pin size={15} />,
+      acao: () => mudarVista(pinado ? 'despinar' : 'pinar', no.id) }
     const apagarItem = (ids: string[]): ItemMenu => ({ rotulo: ids.length > 1 ? `Apagar as ${ids.length}…` : 'Apagar…', icone: <Trash2 size={15} />,
       atalho: '⌫', perigo: true, acao: () => apagar(ids) })
     if (no.tipo === 'imagem' || no.tipo === 'referencia') {
@@ -560,7 +628,6 @@ function CanvasInterno({ slug }: { slug: string }) {
       const imgs = grupo.filter((n) => n.tipo === 'imagem' && !n.gerando)
       const marcas: ItemMenu[] = imgs.length ? [
         'sep',
-        { rotulo: 'Favoritar', icone: <Star size={15} />, atalho: 'F', acao: () => marcar(imgs, 'favorita') },
         { rotulo: 'Aprovar', icone: <Check size={15} />, atalho: 'A', acao: () => marcar(imgs, 'aprovada') },
         { rotulo: 'Descartar', icone: <EyeOff size={15} />, atalho: 'D', acao: () => marcar(imgs, 'descartada') },
       ] : []
@@ -570,18 +637,23 @@ function CanvasInterno({ slug }: { slug: string }) {
         ...(no.tipo === 'imagem' && no.arquivo ? [{ rotulo: 'Pedido de vídeo (dar vida)', icone: <Clapperboard size={15} />, atalho: 'V',
           acao: () => pedidoVideo(no.id) }] : []),
         ...(no.arquivo ? [{ rotulo: 'Abrir', icone: <Maximize2 size={15} />, acao: () => setVisto(no.id) }] : []),
+        ...abrirDaqui, pinItem,
         ...marcas, 'sep', ...galho, codigo,
         'sep', apagarItem(grupo.map((n) => n.id)),
       ]
     }
     if (no.tipo === 'pedido') return [
       ...(no.status === 'rascunho' ? [{ rotulo: 'Enviar ao Claude', icone: <ArrowUp size={15} />, atalho: '⌘↵', acao: () => enviar(no.id) }] : []),
-      ...galho, codigo, 'sep', apagarItem([no.id]),
+      ...abrirDaqui, pinItem, 'sep', ...galho, codigo, 'sep', apagarItem([no.id]),
     ]
     if (no.tipo === 'tela') return [
-      { rotulo: 'Novo pedido nesta tela', icone: <GitBranchPlus size={15} />, acao: () => novoPedido([], no.id) }, ...galho, codigo,
-      'sep', apagarItem([no.id]),
+      { rotulo: 'Novo pedido nesta tela', icone: <GitBranchPlus size={15} />, acao: () => novoPedido([], no.id) },
+      ...abrirDaqui, pinItem, 'sep', ...galho, codigo, 'sep', apagarItem([no.id]),
     ]
+    // uma página com print (captura) pode ser a origem de um pedido de imagens, como uma imagem
+    const daPagina: ItemMenu[] = no.tipo === 'site' && no.arquivo
+      ? [{ rotulo: 'Novo pedido a partir desta', icone: <GitBranchPlus size={15} />, atalho: 'N', acao: () => novoPedido([no.id]) }] : []
+    if (no.tipo === 'video' || no.tipo === 'modelo' || no.tipo === 'site') return [...daPagina, ...abrirDaqui, pinItem, 'sep', ...galho, codigo]
     return [
       { rotulo: 'Editar brief', icone: <FileText size={15} />, acao: () => setAba('brief') },
       { rotulo: 'Nova tela', icone: <Monitor size={15} />, acao: novaTela },
@@ -596,9 +668,9 @@ function CanvasInterno({ slug }: { slug: string }) {
   const ctx: Ctx | null = useMemo(
     () => estado && {
       slug, estado, porId, arv, alternar, mudar, apagar: (id: string) => apagar(id), acao, abrir: setVisto, painel: setAba, novoPedido, pedidoVideo,
-      novaTela, enviar, copiar, focar, limparFoco: () => setFocar(null), pontos,
+      novaTela, enviar, copiar, focar, limparFoco: () => setFocar(null), pontos, raiz, abrirVista, mudarVista,
     },
-    [slug, estado, porId, arv, alternar, mudar, apagar, acao, novoPedido, pedidoVideo, novaTela, enviar, copiar, focar, pontos],
+    [slug, estado, porId, arv, alternar, mudar, apagar, acao, novoPedido, pedidoVideo, novaTela, enviar, copiar, focar, pontos, raiz, abrirVista, mudarVista],
   )
 
   if (!estado || !ctx) {
@@ -607,7 +679,7 @@ function CanvasInterno({ slug }: { slug: string }) {
 
   return (
     <CanvasCtx.Provider value={ctx}>
-      <div className="canvas" onDragOver={(e) => e.preventDefault()}
+      <div className="canvas" ref={raizCanvas} onDragOver={(e) => e.preventDefault()}
         onPointerDownCapture={(e) => { if (e.button === 1) meio.current = { x: e.clientX, y: e.clientY } }}
         onAuxClick={(e) => {
           // clique do meio (sem arrastar) em cima de um nó
@@ -638,11 +710,13 @@ function CanvasInterno({ slug }: { slug: string }) {
           onSelectionContextMenu={(e, ns) => abrirMenu(e, ns[0]?.data.no)}
           deleteKeyCode={null} selectionKeyCode={null} multiSelectionKeyCode={['Meta', 'Control']}
           minZoom={0.05} maxZoom={2.5} proOptions={{ hideAttribution: true }}
-          // roda do mouse = zoom · arrastar no vazio = navegar · ⌘ + arrastar (em qualquer lugar) = caixa de seleção · ⌘ + clique = seleção
-          onlyRenderVisibleElements zoomOnScroll panOnScroll={false} zoomOnPinch
+          // dois dedos no trackpad (ou a roda) = navegar · pinça = zoom · ⌘+ / ⌘− = zoom · arrastar no vazio = navegar ·
+          // ⌘ + arrastar (em qualquer lugar) = caixa de seleção · ⌘ + clique = seleção
+          onlyRenderVisibleElements zoomOnScroll={false} panOnScroll zoomOnPinch
           panOnDrag={[0, 1]} panActivationKeyCode={null} selectionOnDrag={false} selectionMode={SelectionMode.Partial}
           defaultEdgeOptions={{ type: 'default' }} connectionRadius={36}
           zoomOnDoubleClick={false}
+          onMove={(_, vp) => contraZoom(vp.zoom)} onInit={(i) => contraZoom(i.getZoom())}
         >
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.3} color="var(--ponto)" />
           <Controls showInteractive={false} showFitView={false} position="bottom-left">
@@ -651,13 +725,16 @@ function CanvasInterno({ slug }: { slug: string }) {
           <MiniMap position="bottom-right" pannable zoomable nodeColor={corMinimapa} nodeStrokeWidth={0} maskColor="var(--mascara)" />
         </ReactFlow>}
 
-        <TrilhoFogo slug={slug} estado={estado} />
+        <Trilho slug={slug} estado={estado} porId={porId} ativo={raiz} voltar={recortado} mudarVista={mudarVista} />
         <header className="topo">
           <a href="#/" className="marca-app" title="Projetos">
             <img src="/favicon.svg" alt="" width={22} height={22} />
           </a>
-          <span className="projeto-nome">{estado.projeto.nome}</span>
+          {recortado ? (
+            <a href={`#/p/${slug}`} className="projeto-nome link" title="Voltar ao canvas inteiro">{estado.projeto.nome}</a>
+          ) : <span className="projeto-nome">{estado.projeto.nome}</span>}
           <span className="prefixo">{estado.projeto.prefixo}</span>
+          {recortado && <Recorte raiz={porId.get(raiz!)!} pinado={estado.vistas.pinados.includes(raiz!)} copiar={copiar} mudarVista={mudarVista} />}
           <span className="cresce" />
           <span className={`ouvinte ${estado.ouvinte ? 'on' : ''}`}
             title={estado.ouvinte ? 'Claude está ouvindo a fila' : 'Claude não está ouvindo — peça no chat: "ouça o Neo Stitch"'}>
@@ -675,26 +752,7 @@ function CanvasInterno({ slug }: { slug: string }) {
             onClick={() => { setPontos(!pontos); localStorage.setItem('neo:pontos', pontos ? '0' : '1') }}>
             <CircleDot size={16} />
           </button>
-          <div className="organizar">
-            <button type="button" className={`ico ${niveis ? 'on' : ''}`} title="Recolher por nível (⌘1 · ⌘2 · ⌘3)" onClick={() => setNiveis(!niveis)}>
-              <ListTree size={16} />
-            </button>
-            {niveis && (
-              <div className="pop-organizar pop-niveis" onPointerLeave={() => setNiveis(false)}>
-                {[1, 2, 3].map((n) => (
-                  <button key={n} type="button" className="acao-pop" onClick={() => { recolherNivel(n); setNiveis(false) }}>
-                    <PreviaNivel n={n} /> Nível {n} <kbd>⌘{n}</kbd>
-                  </button>
-                ))}
-                <span className="menu-sep" />
-                <button type="button" className="acao-pop" disabled={!recolhidos.length}
-                  onClick={() => { expandirTudo(); setNiveis(false) }}>
-                  <UnfoldHorizontal size={15} /> Tudo aberto
-                </button>
-              </div>
-            )}
-          </div>
-          <button type="button" className="ico aprovados" title="Ir para as aprovadas: recolhe o resto (⌘A · ⌘Z desfaz)" onClick={irParaAprovados}>
+          <button type="button" className="ico aprovados" title="Só aprovados e pinados: recolhe o resto (⌘A · ⌘Z desfaz)" onClick={irParaAprovados}>
             <BadgeCheck size={16} />
           </button>
           <div className="organizar">
@@ -712,6 +770,9 @@ function CanvasInterno({ slug }: { slug: string }) {
                   ))}
                 </div>
                 <span className="menu-sep" />
+                <button type="button" className="acao-pop" onClick={() => { distribuir(); setOrganizar(false) }}>
+                  <AlignVerticalDistributeCenter size={15} /> Otimizar espaço <span className="mudo">{compacto && deslocados.length ? `fecha os vãos · ${deslocados.length} ajustes` : 'fecha os vãos'}</span>
+                </button>
                 <button type="button" className="acao-pop" onClick={() => { irParaAprovados(); setOrganizar(false) }}>
                   <Check size={15} /> Só aprovados <kbd>⌘A</kbd>
                 </button>
@@ -719,6 +780,16 @@ function CanvasInterno({ slug }: { slug: string }) {
                   onClick={() => emLote(() => deslocados.forEach((n) => mudar(n.id, { desloc: null })))}>
                   <LayoutGrid size={15} /> Realinhar <span className="mudo">{deslocados.length ? `${deslocados.length} ajustes manuais` : 'nada fora do lugar'}</span>
                 </button>
+                <span className="menu-sep" />
+                <div className="niveis">
+                  {[1, 2, 3].map((n) => (
+                    <button key={n} type="button" className="modo" title={`Recolher a partir do nível ${n} (⌘${n})`}
+                      onClick={() => { recolherNivel(n); setOrganizar(false) }}>
+                      <PreviaNivel n={n} />
+                      <span>Nível {n} <kbd>⌘{n}</kbd></span>
+                    </button>
+                  ))}
+                </div>
                 <button type="button" className="acao-pop" disabled={!recolhidos.length}
                   onClick={expandirTudo}>
                   <UnfoldHorizontal size={15} /> Expandir tudo <span className="mudo">{recolhidos.length ? `${recolhidos.length} galhos fechados` : 'tudo aberto'}</span>
@@ -726,10 +797,19 @@ function CanvasInterno({ slug }: { slug: string }) {
               </div>
             )}
           </div>
+          {videosRecorte.length > 0 && (
+            <button type="button" className={`ico ${spec ? 'on' : ''}`} title="Delegar o vídeo → HTML para outros agentes (a spec)" onClick={() => setSpec(true)}>
+              <Bot size={16} />
+            </button>
+          )}
           <button type="button" className={`ico ${aba ? 'on' : ''}`} title="Brief e diário" onClick={() => setAba(aba ? null : 'diario')}>
             <BookOpen size={16} />
           </button>
         </header>
+        {spec && videosRecorte.length > 0 && (
+          <SpecAgentes videos={videosRecorte.map((n) => ({ id: n.id, nome: n.nome || n.modelo || '' }))}
+            fechar={() => setSpec(false)} copiar={(t, msg) => { navigator.clipboard?.writeText(t); setAviso(msg || `${t} copiado`) }} />
+        )}
 
         {imgsSel.length > 0 && (
           <div className="barra-selecao">
@@ -745,7 +825,6 @@ function CanvasInterno({ slug }: { slug: string }) {
             {soImagens.length > 0 && (
               <>
                 <span className="sep" />
-                <button type="button" className="ico" title="Favoritar (F)" onClick={() => marcar(soImagens, 'favorita')}><Star size={16} /></button>
                 <button type="button" className="ico" title="Aprovar (A)" onClick={() => marcar(soImagens, 'aprovada')}><Check size={16} /></button>
                 <button type="button" className="ico" title="Descartar (D)" onClick={() => marcar(soImagens, 'descartada')}><EyeOff size={16} /></button>
               </>
@@ -757,7 +836,7 @@ function CanvasInterno({ slug }: { slug: string }) {
           </div>
         )}
 
-        {nos.length <= 2 && !nos.some((n) => n.tipo === 'pedido') && (
+        {!recortado && nos.length <= 2 && !nos.some((n) => n.tipo === 'pedido') && (
           <div className="dica">Cole ou arraste referências · <kbd>+</kbd> na tela para pedir imagens</div>
         )}
 
@@ -769,8 +848,16 @@ function CanvasInterno({ slug }: { slug: string }) {
         {visto && porId.get(visto) && <Viewer id={visto} fechar={() => setVisto(null)} navegar={setVisto} />}
         {aba && <Painel aba={aba} setAba={setAba} />}
         {(selecionando || caixa) && !visto && !menu && (
-          // ⌘ pressionado: arrastar desenha a caixa de seleção (mesmo começando em cima de um nó); clicar põe/tira o nó
-          <div className="capa-selecao" onPointerDown={(e) => {
+          // ⌘ pressionado: arrastar desenha a caixa de seleção (mesmo começando em cima de um nó); clicar põe/tira o nó;
+          // ⌘ + scroll dá zoom em volta do cursor (a capa fica por cima do canvas, então o scroll passa por ela)
+          <div className="capa-selecao" onWheel={(e) => {
+            const area = document.querySelector('.react-flow')?.getBoundingClientRect()
+            if (!area) return
+            const { x, y, zoom } = rf.getViewport()
+            const z = Math.min(2.5, Math.max(0.05, zoom * Math.pow(2, -e.deltaY * 0.0025)))
+            const cx = e.clientX - area.left, cy = e.clientY - area.top
+            rf.setViewport({ x: cx - ((cx - x) * z) / zoom, y: cy - ((cy - y) * z) / zoom, zoom: z })
+          }} onPointerDown={(e) => {
             const alvo = e.currentTarget
             alvo.setPointerCapture(e.pointerId)
             caixaAtiva.current = true
@@ -841,11 +928,27 @@ function CanvasInterno({ slug }: { slug: string }) {
 
 function corMinimapa(n: { data: unknown }) {
   const no = (n.data as { no: No }).no
-  if (no.tipo === 'imagem') return no.estado === 'aprovada' ? '#13a35a' : no.estado === 'favorita' ? '#f2a900' : no.estado === 'descartada' ? '#e3e5e9' : '#b9bec7'
+  if (no.tipo === 'imagem') return no.estado === 'aprovada' ? '#13a35a' : no.estado === 'descartada' ? '#e3e5e9' : '#b9bec7'
   if (no.tipo === 'video') return no.estado === 'aprovada' ? '#13a35a' : '#7a6cf0'
+  if (no.tipo === 'site') return no.estado === 'aprovada' ? '#13a35a' : '#0d9488'
   if (no.tipo === 'pedido') return '#3d5afe'
   if (no.tipo === 'referencia') return '#d0d4da'
   return '#111318'
+}
+
+/** O caminho no topo quando o canvas está recortado num nó (uma vista): pinar/despinar, o código e o nome. */
+function Recorte({ raiz, pinado, copiar, mudarVista }: { raiz: No; pinado: boolean; copiar: (t: string) => void; mudarVista: (a: 'pinar' | 'despinar', id: string) => void }) {
+  return (
+    <>
+      <span className="topo-sep">/</span>
+      <button type="button" className={`ico topo-pin ${pinado ? 'on' : ''}`} title={pinado ? 'Despinar esta vista (volta ao histórico)' : 'Pinar esta vista'}
+        onClick={() => mudarVista(pinado ? 'despinar' : 'pinar', raiz.id)}>
+        {pinado ? <PinOff size={15} /> : <Pin size={15} />}
+      </button>
+      <button type="button" className="codigo" title="Copiar código para citar no chat" onClick={() => copiar(raiz.id)}>{raiz.id}</button>
+      {raiz.nome && <span className="topo-img-nome">{raiz.nome}</span>}
+    </>
+  )
 }
 
 /** Miniatura do modo de organização (o desenho explica melhor que o texto). */

@@ -1,142 +1,104 @@
-# Neo Stitch — para agentes
+# Neo Stitch — guia para agentes
 
-Canvas local para explorar interfaces: **imagem → vídeo → HTML vivo**. O app roda em http://localhost:8730
-(`uv run ferramentas/servidor.py`; código em `app/` e `ferramentas/`, dados em `projects/`).
+Leia este arquivo inteiro antes de mexer em qualquer coisa. Ele é curto de propósito: o que estiver aqui é regra.
 
-Este arquivo explica **como registrar cada coisa no canvas** para a linhagem aparecer certa. Para implementar um vídeo
-como HTML, depois de ler isto, siga [docs/AGENTES.md](docs/AGENTES.md).
+## 1. O que é
 
-## 1. O modelo em um minuto
+O Neo Stitch é um canvas local para criar interfaces em três passos: **imagem → vídeo → HTML vivo**. O usuário vê tudo
+no app (http://localhost:8730) como uma árvore de cartões. Cada cartão saiu de outro, e é essa linhagem que o app
+desenha.
+
+- `ferramentas/`: os comandos em Python (rode sempre com `uv run`, na raiz do repositório).
+- `app/`: o app (React). Ao iniciar, o servidor o recompila se o código mudou (ex.: depois de um `git pull`).
+- `projects/<slug>/`: os dados de cada projeto. **Você nunca edita esses arquivos à mão**: usa os comandos.
+
+Para subir o app: `uv run ferramentas/servidor.py` (porta 8730; outra porta: `… servidor.py 8731`).
+
+## 2. As cinco regras
+
+1. **Tudo passa pelos comandos.** Nenhum arquivo em `projects/<slug>/nodes/` é escrito à mão. Os comandos travam o
+   projeto (o app escreve ao mesmo tempo), dão os códigos e mantêm a linhagem. Se algo não aparece no app, é porque
+   não passou por um comando.
+2. **Tudo o que você gera vira um cartão, com o custo.** Imagem, vídeo, modelo 3D, página: cada um entra no canvas pelo
+   seu comando, com `--custo` em US$ (`0` se nada foi pago). O custo aparece na legenda do cartão.
+3. **Toda parada para aprovação aparece no app.** Quando você precisa que o usuário olhe e aprove algo no meio do
+   trabalho, rode `impl.py aguardar` (seção 5). Só mandar o caminho no chat não basta.
+4. **Nunca apague nada.** Nem imagens, nem nós, nem versões. O que não serve é descartado (estado) ou movido para
+   `projects/<slug>/lixeira/`.
+5. **Quem aprova é o usuário.** Os estados `aprovada` e `descartada` vêm dele (pelo app ou pelo chat). A única exceção é o
+   modelo 3D que você escolheu para usar na página: você o registra já aprovado.
+
+Mais três: o conteúdo é em português (PT-BR); as chaves (`OPENROUTER_API_KEY`, `FAL_KEY`) vêm de `~/.env` e nunca
+são impressas nem commitadas; não mexa no código do app (`app/`, `ferramentas/`) se a tarefa for de conteúdo.
+
+## 3. O modelo
 
 - **Projeto** (`projects/<slug>/`): tem um prefixo (ex.: `JAR`) e uma árvore de nós.
-- **Nó**: um JSON em `projects/<slug>/nodes/<CÓDIGO>.json`. O código (`JAR-042`) é dado uma vez e nunca é reaproveitado.
-  Clicar num código no app copia-o para citar no chat.
-- **Linhagem**: todo nó sai de um pai, e o app desenha a árvore a partir disso. Entre um nó e o que sai dele há sempre um
-  **pedido**, que guarda o que foi pedido, as entradas e o custo.
-- **Ninguém escreve em `nodes/` à mão.** Use os comandos abaixo: eles passam pela trava do projeto (o app escreve ao mesmo
-  tempo) e mantêm a linhagem.
+- **Nó**: um cartão. Tem um código (`JAR-042`), dado uma vez e nunca reaproveitado. No app, clicar no código o copia.
+- **Pedido**: entre um nó e o que sai dele há sempre um pedido. Ele guarda o que foi pedido, as `entradas` (a 1ª é o
+  pai), as `saidas` e o custo.
+- **Página**: o HTML vivo não é um nó. É uma pasta `projects/<slug>/impl/<IMAGEM>/vN/` com um `impl.json`, e o app a
+  desenha como um cartão ligado ao que ela usa.
 
-| Tipo | O que é | Arquivo |
+| Tipo de nó | O que é | Como nasce |
 |---|---|---|
-| `brief`, `tela` | o começo do projeto e as telas que ele pede | — |
-| `pedido` | o que se pediu, com as `entradas` (a 1ª define o pai) e as `saidas` | — |
-| `imagem` | uma imagem gerada (tela, variação, ou asset tirado de um vídeo) | `images/<CÓD>.png` |
-| `referencia` | uma imagem colada pelo usuário | `refs/<CÓD>.*` |
-| `video` | um vídeo gerado a partir de uma imagem | `videos/<CÓD>.mp4` |
-| `modelo` | um modelo 3D gerado a partir de uma imagem | `models/<CÓD>.glb` (capa em `thumbs/`) |
+| `brief`, `tela` | o começo do projeto e as telas que ele pede | `neo.py novo`, `neo.py tela` |
+| `referencia` | uma imagem colada pelo usuário | pelo app |
+| `imagem` | uma imagem gerada | `gerar.py` (de um pedido) ou `impl.py asset` (durante uma página) |
+| `video` | um vídeo gerado de uma imagem | `gerar_video.py` (de um pedido de vídeo) |
+| `modelo` | um modelo 3D gerado de uma imagem | `impl.py asset … .glb` |
 
-As **páginas** (HTML) não são nós: são pastas `projects/<slug>/impl/<IMAGEM>/vN/` com um `impl.json`. O app as desenha
-na página de desenvolvimento da imagem (o 🔥), ligadas ao que as originou.
-
-Contrato completo dos nós: [.claude/skills/neo-stitch/modelo.md](.claude/skills/neo-stitch/modelo.md).
-
-## 2. A cadeia completa
+A cadeia completa, da esquerda para a direita no canvas:
 
 ```
-brief → tela → pedido → IMAGEM ─→ pedido de vídeo → VÍDEO ─┬→ pedido de assets → IMAGEM (placa de fundo)  ─────────────┐
-                                                           └→ pedido de assets → IMAGEM (personagem limpo)            │
-                                                                                     └→ pedido 3D → MODELO 3D ✓ ─────┴→ PÁGINA (impl vN)
-                                                                                                    MODELO 3D
-                                                                                                    MODELO 3D
+tela → pedido → IMAGEM → pedido de vídeo → VÍDEO → pedido de assets → IMAGEM (personagem limpo) → pedido 3D → MODELO 3D ✓ → PÁGINA vN → evolução vN.1
+                                                 └→ pedido de assets → IMAGEM (placa de fundo) ─────────────────────────────┘
 ```
 
-- **Vídeos saem de imagens.** Um pedido de vídeo tem a imagem como 1ª entrada (o quadro inicial) e gera um vídeo por modelo.
-- **Imagens tiradas de um vídeo saem do vídeo.** A placa de fundo sem os elementos vivos, o personagem isolado para o 3D:
-  cada uma vira um cartão no canvas, num pedido de assets que tem o vídeo como entrada.
-- **Modelos 3D saem da imagem que os gerou.** Todos os gerados ficam registrados; o escolhido fica aprovado.
-- **A página sai do que ela usa.** Com `entradas` no `impl.json` (o modelo escolhido primeiro, depois as imagens), o app
-  pendura a página no modelo, liga as outras entradas por linha cheia e o vídeo por linha pontilhada. Sem `entradas`, a
-  página pende do vídeo.
+## 4. Imagens e vídeos
 
-Na página 🔥 da imagem de origem, isso aparece da esquerda para a direita: imagem → vídeos → imagens tiradas do vídeo →
-modelos 3D → páginas → evoluções (v1 → v1.1).
-
-## 3. Como registrar cada coisa
-
-Rode tudo na raiz do repositório.
-
-### Uma imagem (gerada)
-
-Pelo app, o usuário cria o pedido e a fila avisa o Claude. Pela linha de comando:
+Normalmente o usuário cria o pedido no app e o envia; a fila avisa o agente. Para fazer pela linha de comando:
 
 ```bash
+# imagens: um pedido que sai da JAR-042, depois a geração (cada --prompt vira uma imagem)
 uv run ferramentas/neo.py pedido jarvisos --entradas JAR-042 --intencao "mais neon" --quantidade 3
-uv run ferramentas/gerar.py JAR-0XX --prompt "…" --prompt "…" --prompt "…"     # gera e pendura as imagens
-```
+uv run ferramentas/gerar.py JAR-0XX --prompt "…" --prompt "…" --prompt "…"
 
-As imagens nascem do pedido, que nasce da `JAR-042`. Sem entradas, o pedido pende da tela.
-
-### Um vídeo (de uma imagem)
-
-```bash
+# vídeo: um pedido de vídeo que sai da imagem (o quadro inicial), depois a geração (um vídeo por modelo)
 uv run ferramentas/neo.py pedido jarvisos --entradas JAR-095 --midia video --modelos alibaba/wan-3.0 --duracao 6 \
   --intencao "o olho respira, os anéis giram"
-uv run ferramentas/gerar_video.py JAR-0XX --prompt-arquivo prompt.txt          # um nó de vídeo por modelo
+uv run ferramentas/gerar_video.py JAR-0XX --prompt-arquivo prompt.txt
 ```
 
-A imagem ganha o selo 🔥 (em desenvolvimento). Como escrever o prompt de vídeo: skill `neo-stitch`, seção "acao = video".
+`gerar.py` e `gerar_video.py` gravam o custo sozinhos. Como escrever bons prompts: skill `neo-stitch`
+(`.claude/skills/neo-stitch/SKILL.md`).
 
-### Uma imagem tirada do vídeo (asset de uma implementação)
+## 5. Páginas: um vídeo vira HTML vivo
 
-Toda imagem gerada durante uma implementação é um cartão: a placa de fundo sem os elementos vivos, o personagem isolado
-que vai virar 3D, uma textura. Registre assim que ela existir:
+O passo a passo completo está em [docs/AGENTES.md](docs/AGENTES.md). **Leia antes de começar.** Em resumo, são cinco
+comandos, sempre nesta ordem:
 
 ```bash
-uv run ferramentas/impl.py asset JAR-095/v6 phase1/subject.png --nome "robô limpo" \
-  --nota "o robô isolado, fiel ao quadro: entrada do imagem → 3D" --custo 0.02
+uv run ferramentas/impl.py iniciar JAR-154 --agente "Codex 5.6"     # 1. reserva a pasta JAR-095/v6 (o cartão aparece)
+uv run ferramentas/impl.py etapa JAR-095/v6 "componentes" --progresso 0.6 --custo 0.40      # 2. a cada etapa (≤ 10 min)
+uv run ferramentas/impl.py asset JAR-095/v6 fundo.png --nome "placa de fundo" --custo 0.02 --usa   # 3. cada arquivo gerado
+uv run ferramentas/impl.py aguardar JAR-095/v6 phase1/index.html "o robô 3D no lugar"      # 4. cada parada para aprovação
+uv run ferramentas/impl.py pronto JAR-095/v6 --nota "o que a página faz" --custo 1.20     # 5. o fim
 ```
 
-Ela sai do vídeo da versão, num pedido de assets próprio da versão.
+- **Se você usa uma skill** (ex.: `video2html`), siga o método dela **e** estes comandos. Cada "pare para aprovação" da
+  skill é um `impl.py aguardar`.
+- `pronto` recusa terminar se faltar o `index.html` ou se alguma página de fase (`phase1/index.html`…) nunca foi
+  mostrada com `aguardar`.
+- Para alterar uma página que já existe, não mexa nela: `impl.py evoluir JAR-095/v6 --agente "…" --pedido "…"` cria a
+  `v6.1`.
 
-### Um modelo 3D (de uma imagem)
-
-Registre **todos** os modelos gerados, cada um com um render no ângulo do quadro como capa, e marque o escolhido:
-
-```bash
-uv run ferramentas/impl.py asset JAR-022/v1 phase1/models/tripo.glb --nome "Tripo H3.1" --de JAR-181 \
-  --capa phase1/models/tripo-yaw.png --giro -90 --custo 0.40 --estado aprovada
-```
-
-- `--de`: a imagem de onde o modelo foi gerado (normalmente o personagem limpo do passo anterior).
-- `--capa`: um PNG renderizado do modelo (com a skill `video2html`: `render_views.py … --yaw`).
-- `--giro`: graus para o modelo ficar de frente no visualizador, quando ele vem com a frente em outro eixo.
-
-No canvas, o cartão mostra a capa; clicar abre o modelo em 3D, girando (`/modelo.html`).
-
-### Uma página (HTML vivo de um vídeo)
-
-```bash
-uv run ferramentas/impl.py iniciar JAR-154 --agente "Codex 5.6"          # reserva a próxima vN da imagem de origem
-uv run ferramentas/impl.py etapa JAR-095/v6 "fase 2: componentes" --progresso 0.6
-uv run ferramentas/impl.py pronto JAR-095/v6 --nota "o que a página faz"
-uv run ferramentas/impl.py evoluir JAR-095/v6 --agente "Codex 5.6" --pedido "a alteração pedida"   # v6 → v6.1
-```
-
-Para a página sair do modelo e das imagens que ela usa, ponha no `impl.json` (o app lê sozinho):
-
-```json
-"entradas": ["JAR-189", "JAR-180"]
-```
-
-O passo a passo completo, o contrato `impl.json` e o padrão de qualidade estão em [docs/AGENTES.md](docs/AGENTES.md).
-
-## 4. Regras
-
-- Conteúdo em português (PT-BR).
-- **Nunca apague** imagens, vídeos, modelos, nós ou versões: descarte (estado) ou mova para `projects/<slug>/lixeira/`.
-- **Não escreva em `nodes/` à mão.** Os comandos acima existem para isso.
-- **Tudo o que custou dinheiro vira nó** (imagem, vídeo, modelo), com `--custo`: o app soma o custo do projeto.
-- **O usuário aprova**: estado `aprovada` e `descartada` vêm dele, pelo app ou pelo chat. A exceção é o modelo 3D que você
-  escolheu para a página, que você registra já aprovado.
-- As chaves (`OPENROUTER_API_KEY`, `FAL_KEY`) vêm de `~/.env`: nunca as imprima nem as commite.
-
-## 5. Onde ler mais
+## 6. Onde ler mais
 
 | Para | Leia |
 |---|---|
-| implementar um vídeo como HTML (qualquer agente) | [docs/AGENTES.md](docs/AGENTES.md) |
-| o método de vídeo → HTML do Claude Code | skill `video2html` |
+| implementar um vídeo como HTML | [docs/AGENTES.md](docs/AGENTES.md) |
 | operar o canvas (fila, prompts, geração) | skill `neo-stitch` (`.claude/skills/neo-stitch/SKILL.md`) |
 | o contrato de cada tipo de nó | [.claude/skills/neo-stitch/modelo.md](.claude/skills/neo-stitch/modelo.md) |
-| usar o app (atalhos, páginas, visualizador) | [docs/USO.md](docs/USO.md) |
+| usar o app (atalhos, vistas, visualizador) | [docs/USO.md](docs/USO.md) |
 | decisões e escopo | [specs.md](specs.md) |

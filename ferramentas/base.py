@@ -31,7 +31,7 @@ PROJETOS = RAIZ / 'projects'
 FILA = RAIZ / 'fila.jsonl'
 
 TIPOS_NO = ('brief', 'tela', 'pedido', 'imagem', 'referencia', 'video', 'modelo')
-ESTADOS = ('neutra', 'favorita', 'aprovada', 'descartada')
+ESTADOS = ('neutra', 'aprovada', 'descartada')   # sem favorita: o favorito é o pinado (vistas, abaixo)
 MODELOS = {
     'openai/gpt-image-2': {'nome': 'GPT Image 2', 'preco': 0.14},
     'openai/gpt-image-2.5-sunburst': {'nome': 'GPT Image 2.5 Sunburst', 'preco': 0.14},
@@ -157,6 +157,53 @@ def ler_projeto(slug: str) -> dict:
 
 def gravar_projeto(slug: str, dados: dict) -> None:
     gravar_json(pasta(slug) / 'projeto.json', dados)
+
+
+# ---------- vistas: o canvas recortado a partir de um nó (#/p/<slug>/f/<código>) ----------
+# A barra lateral tem os pinados (à mão: qualquer nó, a ordem é a da lista, o mais recente em cima) e o histórico das
+# últimas vistas abertas. Pinado e aprovado são coisas separadas: o aprovado (o verde) só serve para filtrar (⌘A).
+# Cada vista está num lugar só: pinar tira do histórico; despinar devolve ao topo do histórico.
+HISTORICO_MAX = 10
+
+
+def vistas_de(slug: str, lista: list[dict] | None = None) -> dict:
+    """{pinados, historico}, só com nós que ainda existem."""
+    lista = lista if lista is not None else nos(slug)
+    p = ler_projeto(slug)
+    ids = {n['id'] for n in lista}
+    existe = lambda c: c.split('/')[0] in ids  # noqa: E731
+    pin = [c for c in p.get('pinados', []) if existe(c)]
+    hist = [c for c in p.get('historico', []) if existe(c) and c not in pin][:HISTORICO_MAX]
+    return {'pinados': pin, 'historico': hist}
+
+
+def vista(slug: str, acao: str, cod: str) -> dict:
+    """acao: abrir (sobe para o topo do histórico, se não estiver pinada) · pinar · despinar."""
+    if acao not in ('abrir', 'pinar', 'despinar'):
+        raise ValueError(f'ação de vista inválida: {acao}')
+    with travado(slug):
+        p = ler_projeto(slug)
+        if not (acao == 'abrir' and cod in p.get('pinados', [])):
+            pin = [c for c in p.get('pinados', []) if c != cod]
+            hist = [c for c in p.get('historico', []) if c != cod]
+            (pin if acao == 'pinar' else hist).insert(0, cod)
+            p['pinados'], p['historico'] = pin, hist[:HISTORICO_MAX]
+            gravar_projeto(slug, p)
+    return vistas_de(slug)
+
+
+def capa_de(slug: str, cod: str, por_id: dict) -> str | None:
+    """A miniatura de uma vista: a do próprio nó; um pedido usa a 1ª saída (ou entrada) com imagem; um HTML (IMG/vN), a da imagem."""
+    no = por_id.get(cod.split('/')[0])
+    if not no:
+        return None
+    if no.get('tipo') == 'pedido':
+        for c in [*(no.get('saidas') or []), *(no.get('entradas') or [])]:
+            if por_id.get(c, {}).get('thumb') or por_id.get(c, {}).get('arquivo'):
+                no = por_id[c]
+                break
+    arq = no.get('thumb') or (no.get('arquivo') if no.get('tipo') in ('imagem', 'referencia') else None)
+    return f'/projects/{slug}/{arq}' if arq else None
 
 
 def prefixo_livre(nome: str) -> str:
@@ -347,8 +394,22 @@ def novo_avanco() -> dict:
 
 # o que o app mostra de impl.json (o contrato completo em docs/AGENTES.md); base/pedido: evolução (v1 → v1.1);
 # entradas: as imagens tiradas do vídeo de onde a versão parte (ex.: a estática e a viva);
-# estado: a aprovação do usuário (só o app escreve)
-TRABALHO = ('agente', 'status', 'etapa', 'progresso', 'inicio', 'atualizado', 'fim', 'nota', 'erro', 'base', 'pedido', 'estado', 'entradas')
+# estado: a aprovação do usuário (só o app escreve); custo: US$ gastos em APIs na versão; previa: página para ver enquanto trabalha;
+# captura: um print da página (relativo à pasta da versão), que a deixa ser entrada de um pedido de imagens
+TRABALHO = ('agente', 'status', 'etapa', 'progresso', 'inicio', 'atualizado', 'fim', 'nota', 'erro', 'base', 'pedido', 'estado', 'entradas',
+            'custo', 'previa', 'desloc', 'captura')
+
+
+def arquivo_entrada(slug: str, cod: str) -> Path | None:
+    """O arquivo de imagem de uma entrada de pedido: o de um nó, ou o print (captura) de uma página IMG/vN."""
+    if '/' in cod:
+        img, v = cod.split('/', 1)
+        d = pasta(slug) / 'impl' / img / v
+        f = d / ((ler_json(d / 'impl.json', None) or {}).get('captura') or 'captura.png')
+        return f if f.exists() else None
+    no = ler_json(caminho_no(slug, cod))
+    f = pasta(slug) / no['arquivo'] if no and no.get('arquivo') else None
+    return f if f and f.exists() else None
 
 
 def ordem_versao(nome: str) -> tuple:

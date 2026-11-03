@@ -13,7 +13,7 @@
     uv run ferramentas/neo.py pedido <slug> [--tela COD] [--entradas A,B] [--intencao "…"] [--quantidade N] [--enviar]
                                        [--midia video --modelos a,b --duracao 6 --resolucao 720p]   (pedido de vídeo de uma imagem)
     uv run ferramentas/neo.py comentar <CÓDIGO> "texto" [--pin x,y]      (x,y de 0 a 1 sobre a imagem)
-    uv run ferramentas/neo.py estado <CÓDIGO…> neutra|favorita|aprovada|descartada
+    uv run ferramentas/neo.py estado <CÓDIGO…> neutra|aprovada|descartada
     uv run ferramentas/neo.py erro <CÓDIGO> "mensagem"         devolve o pedido com erro (volta a ser editável)
     uv run ferramentas/neo.py diario <slug> "texto"
     uv run ferramentas/neo.py brief <slug> [--arquivo novo.md]  mostra (ou troca) o brief.md
@@ -106,10 +106,10 @@ def ver_no(slug: str, id_: str):
         tela = todos.get(no.get('tela'))
         print(f'\nTela: {tela and tela["titulo"]} ({no.get("tela")})')
         for e in no.get('entradas', []):
-            en = todos.get(e, {})
+            en = todos.get(e, {'tipo': 'página'} if '/' in e else {})
             print(f'\nENTRADA {e} ({en.get("tipo")}) {en.get("nome") or en.get("titulo") or ""} · estado {en.get("estado", "-")}')
-            if en.get('arquivo'):
-                print(f'  arquivo: {d / en["arquivo"]}')
+            if f := B.arquivo_entrada(slug, e):
+                print(f'  arquivo: {f}')
             if en.get('prompt'):
                 print(f'  prompt que a gerou: {en["prompt"]}')
             for c in en.get('comentarios', []):
@@ -156,7 +156,7 @@ def cmd_pedido(a):
         tela = a.tela
         if not tela:
             for e in entradas:
-                n = todos[e]
+                n = todos[e.split('/')[0]]    # uma página IMG/vN herda a tela da imagem
                 tela = n.get('tela') or todos.get(n.get('pedido'), {}).get('tela')
                 if tela:
                     break

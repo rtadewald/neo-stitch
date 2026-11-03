@@ -100,7 +100,7 @@ export function useHistorico(opts: {
   }, [])
 
   return useMemo(
-    () => ({ mudar: mudarH, posicoes: posicoesH, apagar: apagarH, criado, emLote, desfazer, refazer }),
-    [mudarH, posicoesH, apagarH, criado, emLote, desfazer, refazer],
+    () => ({ mudar: mudarH, posicoes: posicoesH, apagar: apagarH, criado, passo: registrar, emLote, desfazer, refazer }),
+    [mudarH, posicoesH, apagarH, criado, registrar, emLote, desfazer, refazer],
   )
 }

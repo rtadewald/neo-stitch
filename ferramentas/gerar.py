@@ -81,10 +81,9 @@ def main() -> None:
 
     pasta = B.pasta(slug)
     refs = []
-    for e in pedido.get('entradas', []):
-        no = B.ler_no(slug, e)
-        if no.get('arquivo') and (pasta / no['arquivo']).exists():
-            refs.append(pasta / no['arquivo'])
+    for e in pedido.get('entradas', []):     # nós com arquivo e páginas IMG/vN (pelo print delas)
+        if f := B.arquivo_entrada(slug, e):
+            refs.append(f)
 
     teses = {v.get('nome'): v.get('tese') for v in pedido.get('variacoes') or [] if v.get('tese')}
     for v in variacoes:

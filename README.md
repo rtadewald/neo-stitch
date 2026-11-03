@@ -26,7 +26,7 @@ do prompt à imagem, da imagem ao movimento, do movimento ao código.
   <img src="docs/demo.gif" alt="O Neo Stitch em uso: a árvore de ideias, o enquadramento de uma família, o visualizador e a página de desenvolvimento com os vídeos de cada modelo" width="100%">
 </p>
 
-<p align="center"><sub>A árvore de ideias do JarvisOS → enquadrar uma família com o botão do meio → o visualizador com as irmãs → a página 🔥 com um vídeo por modelo.</sub></p>
+<p align="center"><sub>A árvore de ideias do JarvisOS → enquadrar uma família com o botão do meio → o visualizador com as irmãs → a vista de uma imagem com um vídeo por modelo.</sub></p>
 
 <br>
 
@@ -41,7 +41,7 @@ Cada ideia vira um nó num canvas infinito. Você pede, o Claude Code gera, voc�
 ```
  brief ─▶ tela ─▶ pedido ─▶ 🖼 imagens ─▶ pedido ─▶ 🖼 imagens …
                                   │
-                                  ▼  (a imagem aprovada ganha 🔥)
+                                  ▼  (a imagem aprovada ganha vídeo)
                           🎬 pedido de vídeo ─▶ vídeos (um por modelo)
                                   │
                                   ▼
@@ -97,7 +97,7 @@ O JarvisOS — o painel de um orquestrador de agentes de voz — foi o primeiro 
 
 ### Um pedido, seis modelos
 
-Cada pedido de vídeo roda em vários modelos ao mesmo tempo, e a página 🔥 da imagem toca todos juntos para comparar. Abaixo, a JAR-095 com o mesmo prompt:
+Cada pedido de vídeo roda em vários modelos ao mesmo tempo, e a vista da imagem mostra todos lado a lado para comparar. Abaixo, a JAR-095 com o mesmo prompt:
 
 <p align="center"><img src="docs/evolucao/modelos-jar095.gif" alt="A JAR-095 animada por seis modelos de vídeo" width="100%"></p>
 
@@ -118,7 +118,7 @@ Testamos os 25 modelos de image-to-video do OpenRouter em quatro telas. O que im
 - **Recolher com intenção:** cada galho fecha numa pílula com a contagem; `⌘1`/`⌘2`/`⌘3` mostram uma geração de cada vez; `⌘A` deixa só o caminho até as aprovadas.
 - **Visualizador** com comentários em pontos da imagem (ou em segundos do vídeo), "Veio de" / "Saiu daqui" e um filme estilo Finder com as irmãs.
 - **Pedidos de vídeo** com vários modelos, duração, resolução e estimativa de custo antes de enviar.
-- **🔥 Em desenvolvimento:** imagens que viraram vídeo ou HTML ganham página própria, acessível pela tela inicial e pela barra lateral.
+- **Vistas:** qualquer nó abre o canvas recortado a partir dele; a barra lateral guarda os pinados e o histórico das 10 últimas.
 - **Desfazer tudo:** `⌘Z`/`⌘⇧Z` para posições, galhos, marcações, pedidos e itens apagados (nada sai do disco: vai para a lixeira do projeto).
 - **Custos sob controle:** custo por imagem, por pedido e por dia, com tetos que pedem confirmação.
 - **Local e simples:** um servidor Python sem dependências, um JSON por nó, nada de banco de dados.
@@ -153,7 +153,7 @@ Para mexer no app com recarga instantânea: `npm --prefix app run dev` (porta 51
 | `N` | Novo pedido com a seleção (imagens e referências) |
 | `V` | Pedido de vídeo a partir da imagem selecionada |
 | `F` · `A` · `D` | Favorita · aprova · descarta |
-| `⌘A` | Só o caminho até as aprovadas (e as 🔥) |
+| `⌘A` | Só o caminho até as aprovadas |
 | `⌘1` `⌘2` `⌘3` | Mostra uma, duas ou três gerações |
 | `⌘Z` · `⌘⇧Z` | Desfaz · refaz |
 | `⌘V` | Cola uma imagem como referência, embaixo do cursor |
@@ -190,7 +190,7 @@ app/src/              Vite + React 19 + React Flow 12
   Canvas.tsx          o canvas: árvore, atalhos, seleção, menu, organização
   nodes.tsx           os nós: brief, tela, pedido, imagem, referência, vídeo
   Viewer.tsx          o visualizador com pins e linhagem
-  Fogo.tsx            a página 🔥 de cada imagem (canvas imagem → vídeos e sites) e a barra fogo/aprovadas
+  Trilho.tsx          a barra lateral: vistas pinadas e histórico
   layout.ts           a árvore e os modos de arranjo
 projects/<slug>/      os dados (um JSON por nó, imagens, vídeos, impl/) — fora do git
 .claude/skills/       a skill que ensina o Claude a operar o canvas
@@ -200,9 +200,9 @@ Decisões e escopo completos em [specs.md](specs.md).
 
 ## Próximos passos
 
-- [x] O HTML dentro do app: as versões de `impl/<código>/vN` na página 🔥, lado a lado com a imagem e o vídeo.
+- [x] O HTML dentro do app: as versões de `impl/<código>/vN` como nós do canvas, ligadas ao vídeo e à imagem.
 - [x] Do vídeo ao HTML animado: a skill `video2html` usa o vídeo aprovado como referência de movimento na reconstrução.
-- [ ] Pedir o HTML pelo app (um botão na página 🔥 que vira uma ação da fila).
+- [ ] Pedir o HTML pelo app (um botão no vídeo que vira uma ação da fila).
 - [ ] Editar padrões e tetos do projeto pela interface.
 
 <br>

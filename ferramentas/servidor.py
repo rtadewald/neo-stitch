@@ -10,11 +10,14 @@ Só biblioteca padrão. No desenvolvimento, o Vite (app/, porta 5173) repassa /a
 Rotas (JSON; erro volta como {"erro": "…"}):
 - GET  /api/projetos                                  a lista (capa, custos, contagem)
 - GET  /api/spec/agentes                              docs/AGENTES.md (vídeo → HTML por outros agentes) para o app mostrar
-- PATCH /api/projetos/<slug>/impl/<IMG>/<vN[.M]> {estado}   aprova/descarta uma versão de HTML (grava no impl.json)
+- PATCH /api/projetos/<slug>/impl/<IMG>/<vN[.M]> {estado?, desloc?}   aprova/descarta uma versão de HTML ou move o card dela (impl.json)
+- POST /api/projetos/<slug>/impl/<IMG>/<vN[.M]>/pasta   abre a pasta da versão no Finder
 - POST /api/projetos {nome, tipo, descricao}           cria (Brief + primeira Tela)
 - GET  /api/projetos/<slug>?rev=…                      {rev, projeto, nos, custos, brief, diario, modelos, modelos_video,
                                                         avancos, …} ou {rev, igual: true} quando nada mudou
-- PATCH /api/projetos/<slug> {nome?, padroes?, tetos?, layout?: pilha|grade|grade3|grade4|grade5}
+- PATCH /api/projetos/<slug> {nome?, padroes?, tetos?, layout?: pilha|grade|grade3|grade4|grade5, compacto?: bool, final?: código | null}
+                                                       final: a versão final (vira a capa; o projeto vai para Concluídos)
+- POST /api/projetos/<slug>/vistas {acao: abrir|pinar|despinar, id}   o histórico (10) e os pinados da barra lateral
 - PUT  /api/projetos/<slug>/brief {texto}
 - POST /api/projetos/<slug>/nos {tipo: tela|pedido, …}  cria um nó
 - PATCH /api/projetos/<slug>/nos/<id> {…}              só os campos que o app pode mexer (CAMPOS_APP)
@@ -30,6 +33,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import subprocess
 import sys
 from typing import Callable
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -82,15 +86,17 @@ def resumo(slug: str) -> dict:
     lista = B.nos(slug)
     por_id = {n['id']: n for n in lista}
     imgs = [n for n in lista if n['tipo'] == 'imagem' and n.get('arquivo')]
-    capa = next((n for n in imgs if n.get('estado') == 'aprovada'), None) or next(
-        (n for n in imgs if n.get('estado') == 'favorita'), None) or (imgs[-1] if imgs else None)
+    capa = next((n for n in imgs if n.get('estado') == 'aprovada'), None) or (imgs[-1] if imgs else None)
+    capa = capa and f'/projects/{slug}/{capa.get("thumb") or capa["arquivo"]}'
+    # a versão final, quando marcada, é a capa (um HTML usa a imagem de onde saiu)
+    final = p.get('final')
+    capa = (final and B.capa_de(slug, final, por_id)) or capa
     atualizado = max([n.get('atualizado') or n.get('criado') or '' for n in lista] + [p.get('criado', '')])
     return {'slug': slug, 'nome': p['nome'], 'prefixo': p['prefixo'], 'tipo': p['tipo'],
-            'capa': capa and f'/projects/{slug}/{capa.get("thumb") or capa["arquivo"]}',
+            'capa': capa, 'final': final, 'concluido': p.get('concluido'),
             'imagens': len(imgs), 'custos': B.custos(slug, lista), 'atualizado': atualizado,
-            'fogos': [{'id': i, 'thumb': f'/projects/{slug}/{por_id[i].get("thumb") or por_id[i]["arquivo"]}',
-                       'nome': por_id[i].get('nome') or '', 'videos': len(a['videos']), 'impl': len(a['impl'])}
-                      for i, a in B.avancos(slug, lista).items() if por_id[i].get('arquivo')]}
+            'pinados': [{'id': c, 'thumb': B.capa_de(slug, c, por_id), 'nome': (por_id.get(c.split('/')[0]) or {}).get('nome') or ''}
+                        for c in B.vistas_de(slug, lista)['pinados']]}
 
 
 @rota('GET', '/api/spec/agentes')
@@ -102,18 +108,36 @@ def spec_agentes(h, m, corpo):
 
 @rota('PATCH', f'/api/projetos/{SLUG}/impl/{ID}/' + r'(v\d+(?:\.\d+)?)')
 def mudar_impl(h, m, corpo):
-    """A aprovação de uma versão de HTML (estado: neutra · aprovada · descartada) no impl.json; o resto é do agente."""
+    """O que o app grava no impl.json de uma versão de HTML: a aprovação (estado: neutra · aprovada · descartada) e o
+    deslocamento do card no canvas (desloc: {x, y} ou null); o resto é do agente."""
     slug, img, v = m.groups()
-    if corpo.get('estado') not in B.ESTADOS:
+    if 'estado' in corpo and corpo['estado'] not in B.ESTADOS:
         raise Erro('estado inválido')
+    d = corpo.get('desloc')
+    if d is not None and not (isinstance(d, dict) and all(isinstance(d.get(k), (int, float)) for k in 'xy')):
+        raise Erro('desloc inválido')
     with B.travado(slug):
         f = B.pasta(slug) / 'impl' / img / v / 'impl.json'
         ficha = B.ler_json(f, None)
         if ficha is None:
             raise Erro('Versão sem impl.json.')
-        ficha['estado'] = corpo['estado']
+        if 'estado' in corpo:
+            ficha['estado'] = corpo['estado']
+        if 'desloc' in corpo:
+            ficha['desloc'] = {'x': round(d['x']), 'y': round(d['y'])} if d else None
         B.gravar_json(f, ficha)
     return ficha
+
+
+@rota('POST', f'/api/projetos/{SLUG}/impl/{ID}/' + r'(v\d+(?:\.\d+)?)/pasta')
+def abrir_pasta_impl(h, m, corpo):
+    """Abre a pasta de uma versão de HTML no Finder (o servidor roda na máquina do usuário)."""
+    slug, img, v = m.groups()
+    d = B.pasta(slug) / 'impl' / img / v
+    if not d.is_dir():
+        raise Erro('A pasta desta versão não existe.')
+    subprocess.run(['open', str(d)], check=False)
+    return {'ok': True}
 
 
 @rota('GET', '/api/projetos')
@@ -147,11 +171,23 @@ def estado(h, m, corpo):
         return {'rev': r, 'igual': True}
     d = B.pasta(slug)
     lista = B.nos(slug)
+    av = B.avancos(slug, lista)
     return {'rev': r, 'projeto': B.ler_projeto(slug), 'nos': lista, 'custos': B.custos(slug, lista),
             'brief': (d / 'brief.md').read_text(encoding='utf-8') if (d / 'brief.md').exists() else '',
             'diario': (d / 'diario.md').read_text(encoding='utf-8') if (d / 'diario.md').exists() else '',
             'modelos': B.MODELOS, 'aspectos': B.ASPECTOS, 'ouvinte': B.ouvinte_vivo(), 'modelos_video': B.modelos_video(),
-            'avancos': B.avancos(slug, lista)}
+            'avancos': av, 'vistas': B.vistas_de(slug, lista)}
+
+
+@rota('POST', f'/api/projetos/{SLUG}/vistas')
+def vistas(h, m, corpo):
+    slug, cod = m.group(1), str(corpo.get('id') or '')
+    if not cod or cod.split('/')[0] not in {n['id'] for n in B.nos(slug)}:
+        raise Erro('Nó não encontrado.', 404)
+    try:
+        return B.vista(slug, corpo.get('acao') or '', cod)
+    except ValueError as e:
+        raise Erro(str(e)) from e
 
 
 @rota('PATCH', f'/api/projetos/{SLUG}')
@@ -167,8 +203,25 @@ def mudar_projeto(h, m, corpo):
                     p['padroes'][k] = v
         if corpo.get('layout') in B.LAYOUTS:
             p['layout'] = corpo['layout']
+        if isinstance(corpo.get('compacto'), bool):
+            p['compacto'] = corpo['compacto']
         if isinstance(corpo.get('tetos'), dict):
             p['tetos'].update({k: v for k, v in corpo['tetos'].items() if k in B.TETOS})
+        if 'final' in corpo:
+            # a versão final: um nó (imagem, vídeo, modelo) ou um HTML (<IMG>/<vN>); null reabre o projeto
+            cod = corpo['final']
+            if cod is None:
+                p.pop('final', None)
+                p.pop('concluido', None)
+            else:
+                img, _, v = str(cod).partition('/')
+                try:
+                    B.ler_no(slug, img)
+                except (KeyError, ValueError):
+                    raise Erro(f'{cod} não existe.')
+                if v and not (B.pasta(slug) / 'impl' / img / v).is_dir():
+                    raise Erro(f'{cod} não existe.')
+                p['final'], p['concluido'] = str(cod), B.agora()
         B.gravar_projeto(slug, p)
     return p
 
@@ -507,9 +560,29 @@ class Servidor(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def garantir_build() -> None:
+    """O app compilado (app/dist) não é versionado: num clone novo ou depois de um `git pull`, ele falta ou está velho e o
+    app aparece sem os recursos novos. Compila de novo quando algum arquivo de app/src é mais novo que o build."""
+    app = B.RAIZ / 'app'
+    fontes = [f for f in [*(app / 'src').rglob('*'), app / 'index.html', app / 'package.json'] if f.is_file()]
+    build = DIST / 'index.html'
+    # sem o código do app (só o dist) não há o que compilar
+    if not fontes or build.exists() and max(f.stat().st_mtime for f in fontes) <= build.stat().st_mtime:
+        return
+    print('app/dist ausente ou desatualizado: compilando o app (npm run build)…', flush=True)
+    try:
+        if not (app / 'node_modules').is_dir():
+            subprocess.run(['npm', '--prefix', str(app), 'install'], check=True)
+        subprocess.run(['npm', '--prefix', str(app), 'run', 'build'], check=True, capture_output=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        print(f'AVISO: não consegui compilar o app ({e}). Rode `npm --prefix app install && npm --prefix app run build`.',
+              flush=True)
+
+
 def main() -> None:
     porta = int(sys.argv[1]) if len(sys.argv) > 1 else PORTA
     B.PROJETOS.mkdir(exist_ok=True)
+    garantir_build()
     srv = Servidor(('127.0.0.1', porta), Handler)
     print(f'Neo Stitch em http://localhost:{porta}/', flush=True)
     try:

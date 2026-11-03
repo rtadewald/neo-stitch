@@ -1,12 +1,12 @@
-import { ArrowUp, ChevronLeft, ChevronRight, Clapperboard, Flame, GitBranchPlus, Pause, Play, Quote, Trash2, X } from 'lucide-react'
+import { ArrowUp, ChevronLeft, ChevronRight, Clapperboard, Focus, GitBranchPlus, Pin as Alfinete, PinOff, Pause, Play, Quote, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, arquivoUrl, dinheiro, rotaFogo, type No, type Pin } from './api'
+import { api, arquivoUrl, dinheiro, rotaVista, type No, type Pin } from './api'
 import { useCanvas } from './ctx'
 import { ESTADOS, alternarEstado, estadoDaTecla } from './estados'
 
 /** A imagem em tela cheia: comentários com pin, estado, prompt e navegação entre as irmãs. */
 export function Viewer({ id, fechar, navegar }: { id: string; fechar: () => void; navegar: (id: string) => void }) {
-  const { porId, arv, slug, mudar, acao, copiar, novoPedido, pedidoVideo, estado: projeto } = useCanvas()
+  const { porId, arv, slug, mudar, acao, copiar, novoPedido, pedidoVideo, mudarVista, estado: projeto } = useCanvas()
   const no = porId.get(id) as No
   const [pin, setPin] = useState<Pin | null>(null)
   const ehVideo = no.tipo === 'video'
@@ -42,6 +42,7 @@ export function Viewer({ id, fechar, navegar }: { id: string; fechar: () => void
     faixaRef.current?.querySelector(`[data-id="${no.id}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
   }, [no.id])
   const estado = no.estado || 'neutra'
+  const pinado = projeto.vistas.pinados.includes(no.id)
   const comentarios = no.comentarios || []
   const pins = comentarios.filter((c) => c.pin)
 
@@ -57,6 +58,7 @@ export function Viewer({ id, fechar, navegar }: { id: string; fechar: () => void
       else if (e.key === ' ' && videoRef.current) { e.preventDefault(); alternarVideo() }
       else if (e.key === 'ArrowRight' && i < irmas.length - 1) navegar(irmas[i + 1])
       else if (e.key === 'ArrowLeft' && i > 0) navegar(irmas[i - 1])
+      else if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey) mudarVista(pinado ? 'despinar' : 'pinar', no.id)
       else if ((no.tipo === 'imagem' || no.tipo === 'video') && !e.metaKey && !e.ctrlKey) {
         const e2 = estadoDaTecla(e.key)
         if (e2) mudar(no.id, { estado: alternarEstado(estado, e2) })
@@ -64,7 +66,7 @@ export function Viewer({ id, fechar, navegar }: { id: string; fechar: () => void
     }
     window.addEventListener('keydown', tecla)
     return () => window.removeEventListener('keydown', tecla)
-  }, [fechar, navegar, irmas, i, no, estado, mudar])
+  }, [fechar, navegar, irmas, i, no, estado, mudar, mudarVista, pinado])
 
   const enviarComentario = async () => {
     if (!texto.trim()) return
@@ -152,12 +154,14 @@ export function Viewer({ id, fechar, navegar }: { id: string; fechar: () => void
               <I size={18} />
             </button>
           ))}
+          <button type="button" className={`ico grande ${pinado ? 'on' : ''}`} title={pinado ? 'Despinar (P)' : 'Pinar (P): fica na barra da esquerda'}
+            onClick={() => mudarVista(pinado ? 'despinar' : 'pinar', no.id)}>
+            {pinado ? <PinOff size={18} /> : <Alfinete size={18} />}
+          </button>
           <span className="cresce" />
-          {projeto.avancos?.[no.id] && (
-            <a className="secundario-ico fogo" href={rotaFogo(slug, no.id)} title="Em desenvolvimento: abrir a página desta imagem (vídeos, HTML)">
-              <Flame size={15} />
-            </a>
-          )}
+          <a className="secundario-ico" href={rotaVista(slug, no.id)} title="Abrir a partir daqui (o canvas só com o que saiu desta imagem)">
+            <Focus size={15} />
+          </a>
           {!ehVideo && (
             <button type="button" className="secundario-ico" title="Pedido de vídeo a partir desta imagem (dar vida)"
               onClick={async () => { fechar(); await pedidoVideo(no.id) }}>

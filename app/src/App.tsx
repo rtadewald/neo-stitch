@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Canvas } from './Canvas'
-import { PaginaFogo } from './Fogo'
 import { Home } from './Home'
 
-/** #/p/<slug> é o canvas; #/p/<slug>/f/<código> é a página de uma imagem com fogo. */
+/** #/p/<slug> é o canvas; #/p/<slug>/f/<código> é o mesmo canvas recortado a partir de um nó (uma vista). */
 function rota() {
-  const m = location.hash.match(/^#\/p\/([a-z0-9-]+)(?:\/f\/([A-Z]+-\d+))?/)
-  return m ? { slug: m[1], fogo: m[2] || null } : null
+  const m = location.hash.match(/^#\/p\/([a-z0-9-]+)(?:\/f\/([A-Z]+-\d+(?:\/v\d+(?:\.\d+)?)?))?/)
+  return m ? { slug: m[1], vista: m[2] || null } : null
 }
 
 export default function App() {
@@ -18,8 +17,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', mudou)
   }, [])
   useEffect(() => {
-    document.title = r?.fogo ? `${r.fogo} · Neo Stitch` : slug ? `${slug} · Neo Stitch` : 'Neo Stitch'
-  }, [slug, r?.fogo])
-  if (r?.fogo) return <PaginaFogo key={`${r.slug}/${r.fogo}`} slug={r.slug} id={r.fogo} />
-  return slug ? <Canvas key={slug} slug={slug} /> : <Home />
+    document.title = r?.vista ? `${r.vista} · Neo Stitch` : slug ? `${slug} · Neo Stitch` : 'Neo Stitch'
+  }, [slug, r?.vista])
+  return slug ? <Canvas key={`${slug}/${r?.vista || ''}`} slug={slug} raiz={r?.vista || undefined} /> : <Home />
 }

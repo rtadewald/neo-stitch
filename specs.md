@@ -162,11 +162,13 @@ Esse pacote é o ponto de partida para o Claude da outra pasta implementar front
 
 **Pedido de vídeo (2026-10-23):** o vídeo é referência de movimento de uma imagem, gerado antes do img-to-html. Pedido com `midia: "video"`, `modelos` (um vídeo por modelo), `duracao`, `resolucao` (padrão Wan 3.0, 6 s, 720p; teto $2 por pedido; o app oferece 5 modelos: Grok 1.5 Lite, Wan 3.0, Wan 3.0 Prime, Hailuo 3, Seedance 2.5). A fila manda `acao: "video"`; o Claude escreve um prompt com travas (câmera fixa, texto intacto, só os elementos nomeados se mexem) e roda `gerar_video.py` (API assíncrona de vídeo da OpenRouter, sem áudio). Os nós `video` penduram no pedido; a imagem de origem mostra o selo `▶ N`; o visualizador toca o vídeo com pins que guardam o segundo. Catálogo, ranking público e veredito do teste dos 25 modelos em `ferramentas/dados/modelos_video.json`; o teste completo (JAR-043 "idle em uso") é o pedido JAR-122.
 
-**Fogo (2026-10-23):** imagem que avançou (vídeo, ou pasta `impl/<código>/vN/`) é calculada no servidor (`base.avancos`), ganha selo de fogo, conta como ativa no ⌘A e vira uma entrada à parte: seção "Em desenvolvimento" na Home, barra à esquerda no canvas e página própria `#/p/<slug>/f/<código>` (por ora: a imagem + os vídeos). As tentativas de HTML entram nessa página depois.
+**Fogo (2026-10-23, substituído em 2026-10-26):** a imagem que avançava ganhava selo de fogo, página própria e entrada na barra. Saiu: no lugar dele, as **vistas** (abaixo). O servidor ainda calcula `base.avancos` (vídeos e versões de `impl/` por imagem), que o app usa para montar os nós de HTML.
+
+**Vistas (2026-10-26):** qualquer nó abre o canvas recortado a partir dele (`#/p/<slug>/f/<código>`; o mesmo Canvas, não uma página à parte). A barra lateral tem os pinados (em cima) e o histórico das 10 últimas vistas; `projeto.json` guarda `pinados` e `historico`, mudados por `POST /api/projetos/<slug>/vistas {acao: abrir|pinar|despinar, id}`. Cada vista fica num lugar só. A Home mostra os pinados do projeto selecionado; o ⌘A considera só as aprovadas.
 
 **video2html (2026-10-24):** skill global `~/.agents/skills/video2html` (imagem aprovada + vídeo → HTML vivo e interativo). Lê o
 movimento (mapa de pixels + Gemini 3.8 Flash), escreve o mapa de vida (`vida.md`), reconstrói em camadas (img-to-html) e anima em
 código (CSS/SVG → Canvas → Three.js, GSAP) — vídeo nunca vira asset. Protótipo: `impl/JAR-095/v1` (do vídeo JAR-154); validação:
-`impl/JAR-115/v1` (do JAR-170). A página 🔥 mostra as versões de `impl/` rodando.
+`impl/JAR-115/v1` (do JAR-170). As versões de `impl/` aparecem como nós no canvas, rodando.
 
 **Fica para depois:** UI para editar padrões/tetos do projeto (só via API/`projeto.json`), v2 (implementações).

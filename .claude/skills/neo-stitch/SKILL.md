@@ -79,14 +79,15 @@ O pedido nasce no canvas e mantém a linhagem. Projeto novo pelo chat: `neo.py n
 
 ## 6. Implementações (HTML)
 
-Imagem → HTML estático: skill `img-to-html`. Imagem + vídeo aprovado → HTML vivo e interativo: skill `video2html`
-(`/video2html JAR-154`). As duas gravam em `projects/<slug>/impl/<código da imagem>/vN/`, e a página 🔥 da imagem mostra as versões.
+Imagem → HTML estático: skill `img2html`. Imagem + vídeo aprovado → HTML vivo e interativo: skill `video2html`
+(`/video2html JAR-154`). As duas gravam em `projects/<slug>/impl/<código da imagem>/vN/`, e cada versão vira um nó de HTML no canvas.
 
-Outros agentes (Codex, OpenCode…) também implementam vídeos: a spec é `docs/AGENTES.md`. Toda versão, inclusive as do Claude, é
-reservada e reportada com `uv run ferramentas/impl.py iniciar <VÍDEO> --agente "Claude Opus 5.5"` · `etapa <IMG/vN> "…" --progresso 0.x`
-· `pronto <IMG/vN>`. O `impl.json` que isso escreve é o que o app mostra (agente, etapa, progresso, "parado?").
-**Imagens e modelos 3D gerados no trabalho são cartões:** `impl.py asset <IMG/vN> <arquivo.png>` (sai do vídeo) e
-`impl.py asset <IMG/vN> <modelo.glb> --de <imagem> --capa <render.png>` (sai da imagem). Visão geral da linhagem: `AGENTS.md`.
+**Toda versão, inclusive as do Claude, segue o `AGENTS.md` e o `docs/AGENTES.md`** (os mesmos de qualquer agente):
+`impl.py iniciar <VÍDEO> --agente "Claude Opus 5.5"` → `etapa <IMG/vN> "…" --progresso 0.x --custo <total>` →
+`asset` para cada imagem (`--usa` se a página a usa) e cada modelo 3D (`--de <imagem> --capa <render.png>`, o escolhido
+`--estado aprovada`) → **`aguardar <IMG/vN> phase1/index.html "o que aprovar"` a cada parada da skill** (o cartão roda a
+página com "aguardando você"; nunca só um caminho no chat) → `pronto <IMG/vN> --nota "…" --custo <total>`. O `pronto` recusa
+terminar com uma fase que nunca passou por `aguardar`.
 **Alteração pedida numa versão existente nunca a edita:** `impl.py evoluir <IMG/vN> --agente "…" --pedido "…"` cria a `vN.M`
 (v1 → v1.1 → v1.2), e o usuário aprova no cartão.
 

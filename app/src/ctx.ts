@@ -21,6 +21,9 @@ export type Ctx = {
   focar: string | null
   pontos: boolean  // pedidos concluídos como pontos na linha
   limparFoco: () => void
+  raiz?: string                  // a vista aberta (o nó a partir do qual o canvas está recortado)
+  abrirVista: (id: string) => void
+  mudarVista: (acao: 'pinar' | 'despinar', id: string) => void
 }
 
 export const CanvasCtx = createContext<Ctx | null>(null)

@@ -1,77 +1,118 @@
-# Vídeo → HTML por qualquer agente
+# Vídeo → HTML: o guia para qualquer agente
 
-Esta é a spec para um agente de código (Claude Code, Codex, OpenCode, Gemini CLI…) transformar um vídeo do Neo Stitch num
-**HTML vivo e interativo**, e para o app mostrar, em tempo real, **quem está trabalhando em qual versão e em que pé está**.
-Vários agentes podem trabalhar no mesmo vídeo ao mesmo tempo: cada um ganha a sua versão (`v4`, `v5`…), e o canvas de
-expansão mostra todas lado a lado.
+Este guia serve para qualquer agente de código (Claude Code, Codex, OpenCode, Gemini CLI…) transformar um vídeo do Neo
+Stitch numa **página HTML viva e interativa**. Ele também garante que o usuário acompanhe no app quem está
+trabalhando, em que etapa e quanto já custou.
 
-O contrato é um arquivo: `projects/<projeto>/impl/<IMAGEM>/vN/impl.json`. O comando `ferramentas/impl.py` escreve esse
-arquivo do jeito certo. Use o comando; escreva o JSON à mão só se não puder rodar `uv`.
+Antes deste guia, leia o [AGENTS.md](../AGENTS.md) da raiz (as regras do repositório).
+
+**Como funciona:** cada página é uma pasta `projects/<projeto>/impl/<IMAGEM>/vN/` com uma ficha, o `impl.json`. O
+comando `ferramentas/impl.py` escreve essa ficha e registra no canvas tudo o que você gerar. O app lê a ficha e atualiza
+o cartão da página sozinho. Vários agentes podem trabalhar no mesmo vídeo ao mesmo tempo: cada um ganha a sua versão
+(`v4`, `v5`…).
+
+## Os cinco comandos
+
+Rode na raiz do repositório. `<V>` é a versão que o passo 1 devolve (ex.: `JAR-043/v4`).
+
+| Quando | Comando |
+|---|---|
+| 1. no começo | `uv run ferramentas/impl.py iniciar <VÍDEO> --agente "<seu nome>"` |
+| 2. a cada etapa, e no máximo a cada 10 min | `uv run ferramentas/impl.py etapa <V> "o que está fazendo" --progresso 0.4 --custo <total>` |
+| 3. a cada imagem ou modelo 3D gerado | `uv run ferramentas/impl.py asset <V> <arquivo> --nome "…" --custo <US$> …` |
+| 4. a cada parada para aprovação | `uv run ferramentas/impl.py aguardar <V> <página.html> "o que aprovar"` |
+| 5. no fim | `uv run ferramentas/impl.py pronto <V> --nota "o que a página faz" --custo <total>` |
+
+Se der errado: `impl.py erro <V> "motivo"` ou `impl.py abandonar <V> --nota "…"`. Para ver quem trabalha em quê:
+`impl.py ver`.
 
 ## 1. Comece
-
-Você recebe o código de um vídeo (ex.: `JAR-142`, copiado do app). Na raiz do repositório:
 
 ```bash
 uv run ferramentas/impl.py iniciar JAR-142 --agente "Codex 5.6"
 ```
 
-Isso reserva a próxima versão da imagem de onde o vídeo saiu (ex.: `JAR-043/v4`) e prepara a pasta:
+`JAR-142` é o código do vídeo (o usuário o copia do app). O comando reserva a próxima versão da imagem de onde o vídeo
+saiu (ex.: `JAR-043/v4`) e prepara a pasta:
 
-- `reference.png`: a imagem aprovada. **É o conteúdo**: textos, layout, componentes.
-- `analise/video-ref.mp4`: o vídeo. **É o movimento**: o que respira, acende, gira. Inspiração, não especificação.
-- `impl.json`: a sua ficha, já com `status: "trabalhando"`.
+- `reference.png`: a imagem. **É o conteúdo**: textos, layout, cores, componentes.
+- `analise/video-ref.mp4`: o vídeo. **É o movimento**: o que respira, acende, gira.
+- `impl.json`: a ficha, já como `trabalhando`. O cartão aparece no app na hora, com o seu nome.
 
-O cartão da versão aparece na hora no app, com o seu nome.
-
-**O nome do agente** é curto, até 24 caracteres: a ferramenta ou o modelo e a versão. Exemplos: `Codex 5.6`,
-`Claude Opus 5.5`, `OpenCode Kimi K3`, `Gemini 3.1`. Use sempre o mesmo nome para o mesmo agente.
+**O nome do agente** é curto (até 24 caracteres): a ferramenta ou o modelo, com a versão. Ex.: `Codex 5.6`,
+`Claude Opus 5.5`, `OpenCode Kimi K3`. Use sempre o mesmo nome.
 
 ## 2. Trabalhe só dentro da sua pasta
 
-- Entregável: `index.html` + `assets/` (CSS, JS, imagens) com caminhos relativos. Abre em
-  `http://localhost:8730/projects/<projeto>/impl/<IMAGEM>/vN/index.html` (o servidor do Neo Stitch serve a pasta).
-- Bibliotecas por CDN com versão fixa (ex.: `three@0.170.0`, `gsap@3.13.0`).
+- O entregável é `index.html` + `assets/` (CSS, JS, imagens), com caminhos relativos. A página abre em
+  `http://localhost:8730/projects/<projeto>/impl/<IMAGEM>/vN/index.html`.
+- Bibliotecas por CDN, com versão fixa (ex.: `three@0.170.0`, `gsap@3.13.0`).
 - Escreva um `README.md` na pasta: o que vive, como foi feito, o que ficou de fora e por quê.
-- **Toda imagem que você gerar no trabalho é um asset do projeto** (placa de fundo sem os elementos vivos, personagem limpo
-  para o 3D, textura): registre no canvas, saindo do vídeo, com
-  `uv run ferramentas/impl.py asset <IMAGEM/vN> <arquivo.png> --nome "…" --nota "para que serve" --custo 0.04`.
-- **Modelos 3D também** (todos os gerados, com o escolhido aprovado): saem da imagem que os gerou, com um render como capa:
-  `uv run ferramentas/impl.py asset <IMAGEM/vN> <modelo.glb> --nome "…" --de <imagem> --capa <render.png> [--giro -90] --custo 0.40 [--estado aprovada]`.
-  No `impl.json`, ponha o modelo escolhido em `entradas` (primeiro), para a página sair dele no app.
-- Não mexa em outras versões, em `nodes/` nem nos arquivos do app. Não apague nada.
+- Não mexa em outras versões, em `nodes/` nem no código do app. Não apague nada.
 
 ## 3. Reporte o andamento
 
-A cada etapa, e **pelo menos a cada 10 minutos** (sem atualizar por 15 min, o app mostra "parado?"):
-
 ```bash
-uv run ferramentas/impl.py etapa JAR-043/v4 "fase de vida: esfera em WebGL" --progresso 0.6
-uv run ferramentas/impl.py vivo JAR-043/v4        # só o sinal de vida, sem mudar a etapa
+uv run ferramentas/impl.py etapa JAR-043/v4 "componentes: cards e gráficos" --progresso 0.6 --custo 0.42
+uv run ferramentas/impl.py vivo JAR-043/v4      # só o sinal de vida, sem mudar a etapa
 ```
 
-Etapas sugeridas (o texto é livre, curto, em português):
+- Atualize a cada etapa e **no máximo a cada 10 minutos**. Sem notícia há 15 minutos, o cartão mostra "parado?".
+- `--custo` é o **total** gasto em APIs nesta versão até agora (imagens, 3D, descrição de vídeo), não o incremento.
+- O texto da etapa é livre, curto, em português. Um guia de progresso: lendo o material 0.1 · estrutura e textos 0.3 ·
+  assets 0.45 · partes vivas 0.65 · interações 0.85 · verificação 0.95.
 
-1. lendo o vídeo e a imagem: 0.1
-2. estrutura estática (layout, textos, componentes fiéis à imagem): 0.3
-3. assets (placas de fundo, recortes): 0.45
-4. vida (o ocioso do vídeo em código): 0.65
-5. interações (cursor, cliques, o chat responde): 0.85
-6. verificação (abrir, gravar, comparar com o vídeo): 0.95
+## 4. Registre tudo o que gerar
 
-## 4. Termine
+Toda imagem e todo modelo 3D gerado no trabalho vira um cartão no canvas. Registre **assim que o arquivo existir**,
+mesmo os que você não vai usar.
+
+**Uma imagem** (placa de fundo sem os elementos vivos, personagem isolado para o 3D, textura). Ela sai do vídeo:
 
 ```bash
-uv run ferramentas/impl.py pronto JAR-043/v4 --nota "esfera em Three.js, feixes em SVG, chat responde"
-uv run ferramentas/impl.py erro JAR-043/v4 "não consegui recortar o personagem"
-uv run ferramentas/impl.py abandonar JAR-043/v4 --nota "outra abordagem na v5"
+uv run ferramentas/impl.py asset JAR-043/v4 assets/fundo.png --nome "placa de fundo" \
+  --nota "o fundo sem os elementos vivos" --custo 0.02 --usa
 ```
 
-`pronto` exige o `index.html`. Depois dele, o cartão passa a rodar o HTML.
+`--usa` diz que a página usa essa imagem: ela entra nas `entradas` da página, e o app as liga com uma linha.
 
-`uv run ferramentas/impl.py ver` lista quem está trabalhando em quê.
+**Um modelo 3D**. Ele sai da imagem que o gerou (`--de`). Registre **todos** os modelos gerados, cada um com um render
+no ângulo do quadro como capa, e marque o escolhido como aprovado:
 
-## 5. Alterações pedidas: evoluções (v1.1, v1.2…)
+```bash
+uv run ferramentas/impl.py asset JAR-043/v4 phase1/models/tripo.glb --nome "Tripo H3.1" --de JAR-181 \
+  --capa phase1/models/tripo-yaw.png --giro -90 --custo 0.40 --estado aprovada
+```
+
+- `--giro`: graus para o modelo ficar de frente no visualizador do app, quando ele vem virado.
+- O modelo aprovado vira a 1ª das `entradas`: no app, a página sai dele.
+
+## 5. Pare para aprovação dentro do app
+
+Quando o usuário precisa ver e aprovar algo no meio do trabalho (a Fase 1 do `video2html`, uma escolha entre opções),
+faça uma página para isso e rode:
+
+```bash
+uv run ferramentas/impl.py aguardar JAR-043/v4 phase1/index.html "o robô 3D no lugar: olha o cursor e fala"
+```
+
+- O cartão passa a rodar essa página, com o selo **aguardando você**. Dois cliques a abrem.
+- Depois, **pare**: mostre no chat o caminho e um print, e espere um "ok" explícito. Se o usuário pedir ajustes, faça,
+  rode `aguardar` de novo e espere de novo.
+- Ao voltar a trabalhar, o próximo `etapa` tira o cartão do modo "aguardando".
+- **Toda pasta de fase** (`phase1/`, `phase2/`… com um `index.html`) tem de passar por `aguardar`: o `pronto` recusa
+  terminar se alguma nunca foi mostrada.
+
+## 6. Termine
+
+```bash
+uv run ferramentas/impl.py pronto JAR-043/v4 --nota "robô em Three.js, arco em SVG, o chat responde" --custo 1.20
+```
+
+`pronto` exige o `index.html`, a `--nota` e o `--custo` total. Depois dele, o cartão roda a página, e o usuário a
+aprova ou descarta ali mesmo.
+
+## 7. Alterações pedidas: evoluções (v1.1, v1.2…)
 
 Quando pedirem uma mudança numa versão que já existe, **não mexa nela**. Crie a evolução:
 
@@ -79,16 +120,34 @@ Quando pedirem uma mudança numa versão que já existe, **não mexa nela**. Cri
 uv run ferramentas/impl.py evoluir JAR-095/v1 --agente "Codex 5.6" --pedido "o robô sempre olha para o cursor"
 ```
 
-- Isso copia a `v1` para a próxima `v1.N` livre (`v1.1`, depois `v1.2`…), sem `verificacao/`, e grava no `impl.json` a `base`
-  (`v1`) e o `pedido` (o texto da alteração, nas palavras de quem pediu).
-- Evoluir uma `v1.1` gera a `v1.2`: a linha continua na mesma versão principal. Uma abordagem nova do zero é outra versão
-  principal (`iniciar` → `v2`).
-- Trabalhe só na pasta nova, reporte com `etapa` e termine com `pronto --nota "o que mudou"`. No `README.md`, acrescente uma
-  seção "vN.M — <a mudança>" no topo, com o que mudou e a prova.
-- No app, a evolução pende da versão de onde saiu (linha tracejada). **Quem aprova é o usuário**, no próprio cartão
-  (✓ aprovar · ✕ descartar). Isso grava `estado` no `impl.json`; o agente não escreve esse campo.
+- Isso copia a `v1` para a próxima livre (`v1.1`, depois `v1.2`…) e grava na ficha a `base` e o `pedido` (nas palavras de
+  quem pediu). Evoluir a `v1.1` gera a `v1.2`. Uma abordagem nova, do zero, é outra versão (`iniciar` → `v2`).
+- Trabalhe só na pasta nova, reporte com `etapa` e termine com `pronto --nota "o que mudou" --custo …`. No `README.md`,
+  acrescente no topo uma seção "vN.M — <a mudança>".
 
-## 6. O contrato: impl.json
+## 8. O que é um bom resultado
+
+O alvo é uma página que **responde a tudo**, no nível do
+[Auralis](https://ds.asimov.academy/design-systems/auralis-design-system/design-system.html) e do
+[New Era](https://ds.asimov.academy/design-systems/new-era-design-system/design-system.html). Abra as duas e interaja
+antes de começar.
+
+- **O conteúdo vem da imagem; o movimento vem do vídeo.** Textos e layout fiéis à `reference.png`. O que o vídeo inventa
+  (texto que derrete, rótulo que muda, objeto que se deforma) não entra.
+- **Tudo que se mexe é código** (CSS, SVG, Canvas, Three.js, shaders, GSAP). Vídeo nunca vira asset. Imagens estáticas
+  geradas (placas de fundo, texturas) podem.
+- **O que tem volume é 3D de verdade.** Personagem, robô, mascote, produto: um modelo 3D (GLB de image-to-3D), rigado e
+  animado em Three.js. **2.5D é proibido**, inclusive como plano B: camadas recortadas com paralaxe, mapa de profundidade,
+  CSS 3D sobre uma imagem, sprites. Se o 3D falhar em todos os modelos, pare e fale com o usuário.
+- **Vá além do vídeo.** Cada componente importante reage ao cursor e às ações (o chat responde, o item citado acende, o
+  personagem olha para o mouse), e o movimento ocioso do vídeo vira uma função que a interação também chama.
+- Desempenho e acessibilidade não são prioridade agora.
+
+Quem tem a skill `video2html` segue o método dela, junto com este guia (seções 3 a 6).
+
+## 9. A ficha: impl.json
+
+Quem a escreve é o `impl.py`. Escreva à mão só se não puder rodar `uv`: grave num arquivo temporário e renomeie por cima.
 
 ```json
 {
@@ -96,59 +155,36 @@ uv run ferramentas/impl.py evoluir JAR-095/v1 --agente "Codex 5.6" --pedido "o r
   "video": "JAR-142",
   "imagem": "JAR-043",
   "versao": "v4",
-  "status": "trabalhando",
-  "etapa": "fase de vida: esfera em WebGL",
-  "progresso": 0.6,
+  "status": "aguardando",
+  "etapa": "o robô 3D no lugar",
+  "progresso": 0.35,
+  "custo": 0.82,
+  "previa": "phase1/index.html",
+  "paradas": [{ "pagina": "phase1/index.html", "texto": "o robô 3D no lugar", "quando": "2026-10-24T20:05:12" }],
+  "entradas": ["JAR-189", "JAR-180"],
   "inicio": "2026-10-24T19:40:00",
   "atualizado": "2026-10-24T20:05:12",
   "fim": null,
-  "nota": "",
-  "erro": null,
-  "base": null,
-  "pedido": null,
-  "estado": "neutra"
+  "nota": ""
 }
 ```
 
-- `status`: `trabalhando` → `pronto` | `erro` | `abandonado`.
-- `entradas` (opcional): o que a página usa, registrado com `impl.py asset`: o modelo 3D escolhido primeiro, depois as
-  imagens (ex.: `["JAR-189", "JAR-180"]`). O app pendura a versão na 1ª, liga as outras por linha cheia e o vídeo por linha
-  pontilhada. Sem `entradas`, a versão pende do vídeo. A visão geral da linhagem está no [AGENTS.md](../AGENTS.md).
-- `base` e `pedido`: só nas evoluções (ex.: `"v1"` e a alteração pedida). `estado` (`neutra` · `aprovada` · `descartada`): só o app escreve.
-- `progresso`: de 0 a 1. `atualizado`: hora local ISO, a cada escrita.
-- Quem escreve é o agente. O app só lê, e recarrega sozinho quando o arquivo muda.
-- Escrevendo à mão: grave num arquivo temporário e renomeie por cima (escrita atômica). A pasta nova é sempre a próxima `vN`
-  livre da imagem: crie-a com `mkdir` sem `-p`, e se já existir, tente a seguinte.
+| Campo | Significado |
+|---|---|
+| `status` | `trabalhando` → `aguardando` (parado esperando o usuário) → … → `pronto`; ou `erro`, `abandonado` |
+| `custo` | US$ gastos em APIs nesta versão, o total até agora |
+| `previa` | a página que o cartão roda enquanto a versão não está pronta (relativa à pasta) |
+| `paradas` | cada vez que o trabalho parou para aprovação (`impl.py aguardar`) |
+| `entradas` | o que a página usa: o modelo 3D aprovado primeiro, depois as imagens com `--usa`. Sem `entradas`, a página pende do vídeo |
+| `base`, `pedido` | só nas evoluções: a versão de origem e a alteração pedida |
+| `estado`, `desloc` | só o app escreve: a aprovação do usuário e a posição do cartão arrastado |
 
-## 7. O que é um bom resultado
+## 10. Como aparece no app
 
-O alvo é uma página que **responde a tudo**, no nível do
-[Auralis](https://ds.asimov.academy/design-systems/auralis-design-system/design-system.html) e do
-[New Era](https://ds.asimov.academy/design-systems/new-era-design-system/design-system.html): abra e interaja com elas antes de começar.
-
-- **O conteúdo vem da imagem; o movimento vem do vídeo.** Textos e layout fiéis à `reference.png`. O que o vídeo inventa
-  (texto que derrete, rótulo que muda, relógio que deforma) não entra.
-- **Tudo que se mexe é código** (CSS, SVG, Canvas, Three.js, shaders, GSAP). Vídeo nunca vira asset. Imagens estáticas
-  geradas (placas de fundo, texturas) podem.
-- **Vá além do vídeo.** Cada componente importante reage ao cursor e às ações (o chat responde, o agente citado acende, o
-  personagem olha para o mouse), e o ocioso do vídeo vira uma função que a interação também chama.
-- Desempenho e acessibilidade não são prioridade agora.
-
-Quem tem a skill `video2html` (Claude Code) segue o método dela; os outros seguem esta seção.
-
-## 8. Como aparece no app
-
-Na página de expansão da imagem (o 🔥), a versão aparece pendurada no que a originou (o modelo 3D ou a imagem de
-`entradas`, ou o vídeo):
-
-- **trabalhando:** o cartão mostra o nome do agente, a etapa e a barra de progresso; sem atualizar há mais de 15 min, "parado?";
-- **pronto:** o HTML roda no cartão, com o nome do agente na legenda; clicar abre a versão interativa; ✓ e ✕ aprovam ou descartam;
-- **evolução:** pende da versão-base por uma linha tracejada (v1 → v1.1 → v1.2);
+- **trabalhando:** o cartão mostra o seu nome, a etapa e a barra de progresso; sem notícia há 15 min, "parado?".
+- **aguardando:** o cartão roda a página da `previa`, com borda âmbar e o selo "aguardando você".
+- **pronto:** o cartão roda o `index.html`; dois cliques abrem a página interativa; ✓ e ✕ aprovam ou descartam.
+- **evolução:** pende da versão de origem por uma linha tracejada (v1 → v1.1 → v1.2).
 - **erro / abandonado:** o cartão fica apagado, com o motivo.
 
-## Instrução para colar num agente
-
-```text
-No repositório do Neo Stitch (/Users/rtadewald/Projetos Locais/Tools/21-neo-stitch), leia docs/AGENTES.md e
-implemente o vídeo JAR-142 como HTML vivo. Seu nome de agente: "Codex 5.6".
-```
+Todo cartão de página também tem os botões de abrir a pasta no Finder, pinar e abrir a vista a partir dele.

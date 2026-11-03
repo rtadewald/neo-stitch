@@ -1,10 +1,10 @@
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
+import { Handle, Position, useStore, type Node, type NodeProps } from '@xyflow/react'
 import {
-  AppWindow, ArrowUp, Box, Check, ChevronDown, Globe, LayoutDashboard, Link2, LoaderCircle, MessageCircle,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clapperboard, Flame, Minus, Play, Plus, Quote, RotateCw, Smartphone, Sparkles, Star, Trash2, TriangleAlert, X, Archive,
+  AppWindow, ArrowUp, Bot, Box, Check, ChevronDown, Code2, ExternalLink, Flag, FolderOpen, Globe, LayoutDashboard, Link2, LoaderCircle, MessageCircle,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clapperboard, Focus, Image as ImageIcon, Pin, PinOff, Minus, Play, Plus, Quote, RotateCw, Smartphone, Sparkles, Trash2, TriangleAlert, X, Archive,
 } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
-import { api, arquivoUrl, dinheiro, rotaFogo, urlModelo, type ModeloVideo, type No } from './api'
+import { api, arquivoUrl, dinheiro, urlModelo, type ModeloVideo, type No } from './api'
 import { useCanvas } from './ctx'
 import { ESTADOS, alternarEstado } from './estados'
 import { LARG, descendentes, ehPonto, medidaImagem, ocultosSob, razaoDe } from './layout'
@@ -60,6 +60,40 @@ function BotaoGalho({ no }: { no: No }) {
       {ocultos ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
     </Botao>
   )
+}
+
+/** As vistas no hover de todo cartão: pinar/despinar (a barra lateral) e abrir a partir daqui (o canvas recortado neste nó). */
+function BotaoAbrir({ no }: { no: No }) {
+  const { raiz, abrirVista, mudarVista, estado } = useCanvas()
+  const pinado = estado.vistas.pinados.includes(no.id)
+  return (
+    <>
+      <Botao titulo={pinado ? 'Despinar (volta ao histórico)' : 'Pinar'} className={pinado ? 'on pin' : ''}
+        onClick={() => mudarVista(pinado ? 'despinar' : 'pinar', no.id)}>{pinado ? <PinOff size={14} /> : <Pin size={14} />}</Botao>
+      {raiz !== no.id && <Botao titulo="Abrir a partir daqui" onClick={() => abrirVista(no.id)}><Focus size={14} /></Botao>}
+    </>
+  )
+}
+
+/** A versão final do projeto: vira a capa e o projeto, concluído, vai para o fim da página inicial (só uma por projeto). */
+function BotaoFinal({ id }: { id: string }) {
+  const { slug, estado, acao } = useCanvas()
+  const on = estado.projeto.final === id
+  return (
+    <Botao titulo={on ? 'Versão final do projeto · clique para desmarcar (o projeto volta a ficar em andamento)'
+      : 'Marcar como a versão final do projeto (vira a capa; o projeto fica concluído)'} className={on ? 'on final' : ''}
+      onClick={() => acao(() => api.mudarProjeto(slug, { final: on ? null : id }))}><Flag size={14} /></Botao>
+  )
+}
+
+/** A miniatura (640 px) basta até certo zoom; passou disso, o cartão carrega o arquivo original por cima (só re-renderiza ao cruzar). */
+function useNitida(no: No, w: number) {
+  const passou = useStore((s) => s.transform[2] * Math.min(window.devicePixelRatio || 1, 3) * w > 600)
+  return passou && !!no.thumb && !!no.arquivo && no.thumb !== no.arquivo
+}
+function Nitida({ no, w }: { no: No; w: number }) {
+  const { slug } = useCanvas()
+  return useNitida(no, w) ? <img className="nitida" src={arquivoUrl(slug, no.arquivo)} alt="" draggable={false} /> : null
 }
 
 function Codigo({ id }: { id: string }) {
@@ -160,6 +194,7 @@ export const TelaNode = memo(function TelaNode({ data, selected }: NodeProps<NoR
       ) : (
         <span className="tela-nome" title="Duplo clique para renomear">{no.titulo}</span>
       )}
+      <span className="tela-abrir"><BotaoAbrir no={no} /></span>
       <Botao titulo="Novo pedido nesta tela" className="mais" onClick={() => novoPedido([], no.id)}><Plus size={15} /></Botao>
       <Galho no={no} />
       <Alcas />
@@ -341,6 +376,7 @@ function PedidoLido({ no }: { no: No }) {
         {no.status === 'erro' && (
           <Botao titulo="Tentar de novo" onClick={() => enviar(no.id)}><RotateCw size={14} /></Botao>
         )}
+        <BotaoAbrir no={no} />
         <BotaoGalho no={no} />
       </div>
     </>
@@ -362,7 +398,7 @@ function PedidoPonto({ data, selected }: NodeProps<NoRF>) {
   return (
     <div className={`no pedido-ponto ${video ? 'video' : ''} ${aberto ? 'aberto' : ''} ${selected ? 'sel' : ''}`}
       onMouseEnter={entra} onMouseLeave={sai}>
-      <button type="button" className="ponto nodrag" title={no.intencao || no.id} aria-expanded={aberto}
+      <button type="button" className="ponto nodrag" title={`${no.intencao || no.id}${no.custo != null ? ` · ${dinheiro(no.custo)}` : ''}`} aria-expanded={aberto}
         onClick={(e) => { e.stopPropagation(); setFixo(!fixo) }} onDoubleClick={(e) => e.stopPropagation()}>
         {video ? <Clapperboard size={11} /> : <Sparkles size={11} />}
       </button>
@@ -432,7 +468,7 @@ function StatusPedido({ no }: { no: No }) {
 
 // ---------- Imagem e referência ----------
 
-/** Os botões favorita/aprovada/descartada da barra de ações de uma imagem ou vídeo. */
+/** Os botões pinar (aprovada) e descartar da barra de ações de uma imagem, vídeo ou modelo. */
 function BotoesEstado({ no }: { no: No }) {
   const { mudar } = useCanvas()
   const estado = no.estado || 'neutra'
@@ -452,32 +488,28 @@ export const ImagemNode = memo(function ImagemNode({ data, selected }: NodeProps
   const { slug, abrir } = useCanvas()
   const { w, h } = medidaImagem(no)
   const estado = no.estado || 'neutra'
-  const n = no.comentarios?.length || 0
   return (
     <div className={`no imagem es-${estado} ${selected ? 'sel' : ''}`} style={{ width: w }} onDoubleClick={() => abrir(no.id)}>
-      <div className="quadro" style={{ height: no.gerando || no.erro ? Math.round(w / razaoDe(no.aspecto)) : h }}>
+      <div className="moldura">
+        <div className="quadro" style={{ height: no.gerando || no.erro ? Math.round(w / razaoDe(no.aspecto)) : h }}>
         {no.gerando ? (
           <div className="brilho" title="Gerando…" />
         ) : no.erro ? (
           <div className="falhou" title={no.erro}><TriangleAlert size={18} /></div>
         ) : (
-          <img src={arquivoUrl(slug, no.thumb || no.arquivo)} alt={no.nome || no.id} draggable={false} />
+          <><img src={arquivoUrl(slug, no.thumb || no.arquivo)} alt={no.nome || no.id} draggable={false} /><Nitida no={no} w={w} /></>
         )}
-        {estado === 'favorita' && <span className="marca fav"><Star size={11} fill="currentColor" /></span>}
         {estado === 'aprovada' && <span className="marca ok"><Check size={12} strokeWidth={3} /></span>}
         {!no.gerando && (
           <div className="acoes">
             <BotoesEstado no={no} />
+            <BotaoFinal id={no.id} />
             <BotaoGalho no={no} />
+            <BotaoAbrir no={no} />
           </div>
         )}
-        <div className="rodape">
-          <Codigo id={no.id} />
-          {no.nome && <span className="nome">{no.nome}</span>}
-          <span className="cresce" />
-          {n > 0 && <span className="bolha" title={`${n} comentário(s)`}><MessageCircle size={11} /> {n}</span>}
         </div>
-        <SeloVideos no={no} />
+        <Legenda no={no} />
       </div>
       <Galho no={no} />
       <Alcas />
@@ -485,40 +517,53 @@ export const ImagemNode = memo(function ImagemNode({ data, selected }: NodeProps
   )
 })
 
-/** Imagem que avançou (virou vídeo/HTML): selo de fogo no canto — abre a página de desenvolvimento dela. */
-function SeloVideos({ no }: { no: No }) {
-  const { slug, estado } = useCanvas()
-  const a = estado.avancos?.[no.id]
-  if (!a) return null
+/** A legenda fixa de todo cartão de mídia: o tipo (ícone na cor dele), o código (clique copia), o nome e o custo. */
+const TIPO = {
+  imagem: [ImageIcon, 'Imagem'], referencia: [Link2, 'Referência'], video: [Clapperboard, 'Vídeo'], modelo: [Box, 'Modelo 3D'], site: [Code2, 'HTML'],
+} as const
+function Legenda({ no, extra, custo }: { no: No; extra?: ReactNode; custo?: number }) {
+  const [I, rotulo] = TIPO[no.tipo as keyof typeof TIPO] || TIPO.imagem
+  const n = no.comentarios?.length || 0
+  const nome = no.tipo === 'site' ? null : no.nome || no.titulo
+  const final = useCanvas().estado.projeto.final === no.id
   return (
-    <a className="selo-videos fogo nodrag" href={rotaFogo(slug, no.id)}
-      title={`Em desenvolvimento: ${a.videos.length} vídeo(s)${a.impl.length ? ` · ${a.impl.length} HTML` : ''} — abrir`}
-      onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      <Flame size={11} /> {a.videos.length || ''}
-    </a>
+    <div className="legenda">
+      {final && <span className="selo-final" title="Versão final do projeto"><Flag size={11} strokeWidth={2.2} /></span>}
+      <span className="legenda-tipo" title={rotulo}><I size={13} strokeWidth={1.8} /></span>
+      <Codigo id={no.id} />
+      {nome && <span className="nome" title={nome}>{nome}</span>}
+      <span className="cresce" />
+      {extra}
+      <Custo no={custo === undefined ? no : { ...no, custo }} />
+      {n > 0 && <span className="bolha" title={`${n} comentário(s)`}><MessageCircle size={11} /> {n}</span>}
+    </div>
   )
+}
+
+/** O custo do que gerou o cartão (imagem, vídeo, 3D, HTML). Sem registro (importadas, falhas) não mostra nada. */
+function Custo({ no }: { no: No }) {
+  if (no.custo == null) return null
+  return <span className="bolha" title="Custo da geração">{dinheiro(no.custo)}</span>
 }
 
 export const RefNode = memo(function RefNode({ data, selected }: NodeProps<NoRF>) {
   const { no } = data
   const { slug, abrir, apagar } = useCanvas()
   const { w, h } = medidaImagem(no)
-  const n = no.comentarios?.length || 0
   return (
     <div className={`no imagem ref ${selected ? 'sel' : ''}`} style={{ width: w }} onDoubleClick={() => abrir(no.id)}>
-      <div className="quadro" style={{ height: h }}>
+      <div className="moldura">
+        <div className="quadro" style={{ height: h }}>
         <img src={arquivoUrl(slug, no.thumb || no.arquivo)} alt={no.titulo} draggable={false} />
+        <Nitida no={no} w={w} />
         <span className="marca refm" title="Referência"><Link2 size={12} /></span>
         <div className="acoes">
           <BotaoGalho no={no} />
+          <BotaoAbrir no={no} />
           <Botao titulo="Apagar (⌘Z desfaz)" onClick={() => apagar(no.id)}><Trash2 size={14} /></Botao>
         </div>
-        <div className="rodape">
-          <Codigo id={no.id} />
-          {no.titulo && <span className="nome">{no.titulo}</span>}
-          <span className="cresce" />
-          {n > 0 && <span className="bolha"><MessageCircle size={11} /> {n}</span>}
         </div>
+        <Legenda no={no} />
       </div>
       <Galho no={no} />
       <Alcas />
@@ -533,11 +578,11 @@ export const VideoNode = memo(function VideoNode({ data, selected }: NodeProps<N
   const [tocando, setTocando] = useState(false)
   const { w, h } = medidaImagem(no)
   const estado = no.estado || 'neutra'
-  const n = no.comentarios?.length || 0
   return (
     <div className={`no imagem video es-${estado} ${selected ? 'sel' : ''}`} style={{ width: w }} onDoubleClick={() => abrir(no.id)}
       onMouseEnter={() => setTocando(true)} onMouseLeave={() => setTocando(false)}>
-      <div className="quadro" style={{ height: h }}>
+      <div className="moldura">
+        <div className="quadro" style={{ height: h }}>
         {no.gerando ? (
           <div className="brilho" title="Gerando vídeo…" />
         ) : no.erro ? (
@@ -548,19 +593,14 @@ export const VideoNode = memo(function VideoNode({ data, selected }: NodeProps<N
             {tocando && no.arquivo && <video src={arquivoUrl(slug, no.arquivo)} autoPlay muted loop playsInline />}
           </>
         )}
-        <span className={`marca ${estado === 'aprovada' ? 'ok' : estado === 'favorita' ? 'fav' : 'play'}`}>
-          {estado === 'aprovada' ? <Check size={12} strokeWidth={3} /> : estado === 'favorita' ? <Star size={11} fill="currentColor" /> : <Play size={10} fill="currentColor" />}
+        <span className={`marca ${estado === 'aprovada' ? 'ok' : 'play'}`}>
+          {estado === 'aprovada' ? <Check size={12} strokeWidth={3} /> : <Play size={10} fill="currentColor" />}
         </span>
         {!no.gerando && (
-          <div className="acoes"><BotoesEstado no={no} /></div>
+          <div className="acoes"><BotoesEstado no={no} /><BotaoFinal id={no.id} /><BotaoAbrir no={no} /></div>
         )}
-        <div className="rodape">
-          <Codigo id={no.id} />
-          <span className="nome">{no.nome}</span>
-          <span className="cresce" />
-          {no.custo ? <span className="bolha">{dinheiro(no.custo)}</span> : null}
-          {n > 0 && <span className="bolha"><MessageCircle size={11} /> {n}</span>}
         </div>
+        <Legenda no={no} extra={no.duracao ? <i className="legenda-meta">{no.duracao}s</i> : null} />
       </div>
       <Galho no={no} />
       <Alcas />
@@ -577,16 +617,13 @@ export const ModeloNode = memo(function ModeloNode({ data, selected }: NodeProps
   return (
     <div className={`no imagem modelo es-${estado} ${selected ? 'sel' : ''}`} style={{ width: w }}
       onDoubleClick={() => window.open(urlModelo(slug, no), '_blank', 'noreferrer')} title="Dois cliques abrem o modelo em 3D">
-      <div className="quadro" style={{ height: h }}>
+      <div className="moldura">
+        <div className="quadro" style={{ height: h }}>
         <img src={arquivoUrl(slug, no.thumb || '')} alt={no.nome || no.id} draggable={false} />
         <span className={`marca ${estado === 'aprovada' ? 'ok' : 'play'}`}>{estado === 'aprovada' ? <Check size={12} strokeWidth={3} /> : <Box size={11} />}</span>
-        <div className="acoes"><BotoesEstado no={no} /></div>
-        <div className="rodape">
-          <Codigo id={no.id} />
-          <span className="nome">{no.nome}</span>
-          <span className="cresce" />
-          {no.custo ? <span className="bolha">{dinheiro(no.custo)}</span> : null}
+        <div className="acoes"><BotoesEstado no={no} /><BotaoFinal id={no.id} /><BotaoAbrir no={no} /></div>
         </div>
+        <Legenda no={no} />
       </div>
       <Galho no={no} />
       <Alcas />
@@ -594,5 +631,84 @@ export const ModeloNode = memo(function ModeloNode({ data, selected }: NodeProps
   )
 })
 
-export const nodeTypes = { brief: BriefNode, tela: TelaNode, pedido: PedidoNode, imagem: ImagemNode, referencia: RefNode, video: VideoNode, modelo: ModeloNode }
+const PARADO_MS = 15 * 60 * 1000  // sem atualizar o impl.json por mais que isso, "trabalhando" vira "parado?" (docs/AGENTES.md)
+
+/** O relógio de quem mostra tempo relativo: re-renderiza a cada 30 s. */
+function useAgora() {
+  const [agora, setAgora] = useState(() => Date.now())
+  useEffect(() => { const t = setInterval(() => setAgora(Date.now()), 30000); return () => clearInterval(t) }, [])
+  return agora
+}
+const haQuanto = (iso: string | undefined, agora: number) => {
+  if (!iso) return ''
+  const min = Math.max(0, Math.round((agora - Date.parse(iso)) / 60000))
+  return min < 1 ? 'agora' : min < 60 ? `há ${min} min` : `há ${Math.round(min / 60)} h`
+}
+
+/**
+ * Uma versão de HTML (impl/<imagem>/<versão>/). Pronta: a página roda dentro do quadro (sem capturar o mouse, para o canvas
+ * navegar) e dois cliques abrem interativa em outra aba. Em andamento: o agente (impl.json), a etapa e o progresso.
+ */
+export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoRF>) {
+  const { no } = data
+  const { slug, acao } = useCanvas()
+  const agora = useAgora()
+  const { img, versao, trabalho: t } = no.site!
+  const { w, h } = medidaImagem(no)
+  const pasta = `/projects/${slug}/impl/${img}/${versao}/`
+  const url = pasta + 'index.html'
+  const pronto = !t || t.status === 'pronto'
+  // em andamento com prévia (ex.: a página da fase 1): ela roda no quadro e o andamento fica por cima.
+  // aguardando: o agente parou esperando a sua aprovação dessa prévia (impl.py aguardar)
+  const aguardando = t?.status === 'aguardando'
+  const previa = !pronto && (t?.status === 'trabalhando' || aguardando) && t?.previa ? pasta + t.previa : null
+  const abrir = pronto ? url : previa
+  const parado = t?.status === 'trabalhando' && !!t.atualizado && agora - Date.parse(t.atualizado) > PARADO_MS
+  const estado = no.estado || 'neutra'
+  const titulo = t ? `${t.agente} · ${t.status}${t.base ? ` · evolução da ${t.base}: ${t.pedido || ''}` : ''}${t.etapa && !pronto ? ` · ${t.etapa}` : ''}${t.nota ? ` · ${t.nota}` : ''}` : 'HTML vivo'
+  return (
+    <div className={`no imagem site es-${estado} ${selected ? 'sel' : ''} ${pronto ? '' : `obra st-${t!.status}`} ${parado ? 'parado' : ''}`}
+      style={{ width: w }} title={titulo} onDoubleClick={() => abrir && window.open(abrir, '_blank', 'noreferrer')}>
+      <div className="moldura">
+        <div className="quadro" style={{ height: h }}>
+        {(pronto || previa) && <iframe src={abrir!} title={no.id} loading="lazy" tabIndex={-1} />}
+        {!pronto && (
+          <div className={`obra-painel ${previa ? 'sobre' : ''}`}>
+            <span className="agente-chip grande"><Bot size={14} strokeWidth={1.8} /> {t!.agente}</span>
+            {t!.pedido && <p className="obra-pedido">“{t!.pedido}”</p>}
+            <p className="obra-etapa">
+              {t!.status === 'trabalhando' && !parado && <LoaderCircle size={13} className="gira" />}
+              {t!.status === 'erro' ? (t!.erro || 'erro') : t!.status === 'abandonado' ? (t!.nota || 'abandonado') : t!.etapa || 'trabalhando'}
+            </p>
+            {aguardando && <span className="aguardando-chip" title="O agente parou: aprove (ou peça ajustes) no chat com ele">aguardando você</span>}
+            {t!.status === 'trabalhando' && <div className="obra-barra"><i style={{ width: `${Math.round((t!.progresso || 0) * 100)}%` }} /></div>}
+            <span className="obra-tempo">{parado ? `parado? última notícia ${haQuanto(t!.atualizado, agora)}` : t!.status === 'trabalhando' ? `${Math.round((t!.progresso || 0) * 100)}% · ${haQuanto(t!.atualizado, agora)}` : aguardando ? `aguardando ${haQuanto(t!.atualizado, agora)}` : t!.status}</span>
+          </div>
+        )}
+        {/* o canto esquerdo: o ✓ (aprovada) e, longe da barra de ações, o botão de abrir a página em outra aba */}
+        <div className="canto-esq">
+          {estado === 'aprovada' && <span className="marca ok"><Check size={12} strokeWidth={3} /></span>}
+          {abrir && <Botao titulo={pronto ? 'Abrir a página em outra aba (interativa)' : 'Abrir a prévia em outra aba'} className="abrir-pagina"
+            onClick={() => window.open(abrir, '_blank', 'noreferrer')}><ExternalLink size={14} /></Botao>}
+          <Botao titulo="Abrir a pasta no Finder" className="abrir-pagina"
+            onClick={() => acao(() => api.pastaImpl(slug, img, versao))}><FolderOpen size={14} /></Botao>
+        </div>
+        <div className="acoes">
+          {t && pronto && ESTADOS.map(({ e, t: rotulo, I }) => (
+            // a aprovação da versão (vale sobretudo para as evoluções: v1.1 aprovada = a alteração foi aceita)
+            <Botao key={e} titulo={rotulo} className={estado === e ? `on ${e}` : ''}
+              onClick={() => acao(() => api.mudarImpl(slug, img, versao, alternarEstado(estado, e)))}><I size={14} /></Botao>
+          ))}
+          <BotaoFinal id={no.id} />
+          <BotaoAbrir no={no} />
+        </div>
+        </div>
+        <Legenda no={no} extra={t && <span className="agente-chip" title={`Feito por ${t.agente}`}><Bot size={11} strokeWidth={1.8} /> {t.agente}</span>} custo={t?.custo} />
+      </div>
+      <Alcas />
+    </div>
+  )
+})
+
+export const nodeTypes = { brief: BriefNode, tela: TelaNode, pedido: PedidoNode, imagem: ImagemNode, referencia: RefNode, video: VideoNode, modelo: ModeloNode, site: SiteNode }
 

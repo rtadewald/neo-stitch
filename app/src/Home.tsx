@@ -1,6 +1,6 @@
-import { AppWindow, ArrowUp, Flame, Globe, LayoutDashboard, Plus, Smartphone, X } from 'lucide-react'
+import { AppWindow, ArrowUp, Flag, Globe, LayoutDashboard, Pin, Plus, Smartphone, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { api, dinheiro, rotaFogo, type ResumoProjeto } from './api'
+import { api, dinheiro, rotaVista, type ResumoProjeto } from './api'
 
 const TIPOS = [
   { v: 'site', r: 'Site', I: Globe },
@@ -25,6 +25,33 @@ export function Home() {
   }
   const atual = lista?.find((p) => p.slug === sel)
   const abrir = (slug: string) => { location.hash = `#/p/${slug}` }
+  // com a versão final marcada, o projeto vai para o fim da grade, com a bandeira na capa (o concluído mais recente primeiro)
+  const ativos = lista?.filter((p) => !p.final)
+  const concluidos = lista?.filter((p) => p.final).sort((a, b) => (b.concluido || '').localeCompare(a.concluido || ''))
+
+  const cartao = (p: ResumoProjeto) => {
+    const Tipo = TIPOS.find((t) => t.v === p.tipo)?.I || AppWindow
+    const on = p.slug === sel
+    return (
+      <div key={p.slug} role="button" tabIndex={0} className={`cartao projeto ${on ? 'sel' : ''}`}
+        title={`${p.nome}: clique para ver as vistas pinadas · duplo clique abre`}
+        onClick={(e) => { e.stopPropagation(); selecionar(p.slug) }} onDoubleClick={() => abrir(p.slug)}
+        onKeyDown={(e) => { if (e.key === 'Enter') abrir(p.slug) }}>
+        <div className="capa">
+          {p.capa ? <img src={p.capa} alt="" draggable={false} /> : <Tipo size={28} strokeWidth={1.3} />}
+          {(p.pinados || []).length > 0 && <span className="selo-pin contagem" title={`${p.pinados!.length} vistas pinadas`}><Pin size={12} /> {p.pinados!.length}</span>}
+          {p.final && <span className="selo-final capa-final" title={`Versão final: ${p.final}`}><Flag size={12} strokeWidth={2.2} /></span>}
+          {on && <button type="button" className="primario abrir" onClick={(e) => { e.stopPropagation(); abrir(p.slug) }} title="Abrir o canvas (↵)">Abrir</button>}
+        </div>
+        <div className="cartao-info">
+          <span className="cartao-nome">{p.nome}</span>
+          <span className="prefixo">{p.prefixo}</span>
+          <span className="cresce" />
+          <span className="mudo" title={`${p.imagens} imagens · ${dinheiro(p.custos.total)}`}>{p.imagens}</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <main className="home" onClick={() => selecionar(null)}>
@@ -37,49 +64,27 @@ export function Home() {
         <button type="button" className="cartao novo" onClick={(e) => { e.stopPropagation(); setNovo(true) }} title="Novo projeto">
           <Plus size={28} strokeWidth={1.5} />
         </button>
-        {lista?.map((p) => {
-          const Tipo = TIPOS.find((t) => t.v === p.tipo)?.I || AppWindow
-          const on = p.slug === sel
-          return (
-            <div key={p.slug} role="button" tabIndex={0} className={`cartao projeto ${on ? 'sel' : ''}`}
-              title={`${p.nome}: clique para ver o que está em desenvolvimento · duplo clique abre`}
-              onClick={(e) => { e.stopPropagation(); selecionar(p.slug) }} onDoubleClick={() => abrir(p.slug)}
-              onKeyDown={(e) => { if (e.key === 'Enter') abrir(p.slug) }}>
-              <div className="capa">
-                {p.capa ? <img src={p.capa} alt="" draggable={false} /> : <Tipo size={28} strokeWidth={1.3} />}
-                {(p.fogos || []).length > 0 && <span className="selo-fogo contagem" title={`${p.fogos!.length} em desenvolvimento`}><Flame size={12} /> {p.fogos!.length}</span>}
-                {on && <button type="button" className="primario abrir" onClick={(e) => { e.stopPropagation(); abrir(p.slug) }} title="Abrir o canvas (↵)">Abrir</button>}
-              </div>
-              <div className="cartao-info">
-                <span className="cartao-nome">{p.nome}</span>
-                <span className="prefixo">{p.prefixo}</span>
-                <span className="cresce" />
-                <span className="mudo" title={`${p.imagens} imagens · ${dinheiro(p.custos.total)}`}>{p.imagens}</span>
-              </div>
-            </div>
-          )
-        })}
+        {ativos?.map(cartao)}
+        {concluidos?.map(cartao)}
       </section>
       {atual && (
         <div onClick={(e) => e.stopPropagation()}>
-          <h2 className="home-secao fogo" title="Imagens deste projeto que já ganharam vídeo ou HTML">
-            <Flame size={15} /> Em desenvolvimento <span className="mudo">· {atual.nome}</span>
+          <h2 className="home-secao vistas" title="As vistas pinadas deste projeto">
+            <Pin size={15} /> Pinados <span className="mudo">· {atual.nome}</span>
           </h2>
-          {(atual.fogos || []).length ? (
-            <section className="grade fogos">
-              {atual.fogos!.map((f) => (
-                <a key={f.id} className="cartao" href={rotaFogo(atual.slug, f.id)}>
-                  <div className="capa"><img src={f.thumb} alt="" /><span className="selo-fogo"><Flame size={12} /></span></div>
+          {(atual.pinados || []).length ? (
+            <section className="grade pinados">
+              {atual.pinados!.map((f) => (
+                <a key={f.id} className="cartao" href={rotaVista(atual.slug, f.id)}>
+                  <div className="capa">{f.thumb ? <img src={f.thumb} alt="" /> : <span className="sem-capa">{f.id}</span>}<span className="selo-pin"><Pin size={12} /></span></div>
                   <div className="cartao-info">
                     <span className="cartao-nome">{f.id}</span>
                     <span className="mudo">{f.nome}</span>
-                    <span className="cresce" />
-                    <span className="mudo" title={`${f.videos} vídeo(s)${f.impl ? ` · ${f.impl} HTML` : ''}`}>▶ {f.videos}{f.impl ? ` · </> ${f.impl}` : ''}</span>
                   </div>
                 </a>
               ))}
             </section>
-          ) : <p className="mudo">Nada em desenvolvimento ainda: aprove uma imagem e peça um vídeo dela no canvas.</p>}
+          ) : <p className="mudo">Nada pinado ainda: no canvas, abra a partir de um nó e pine a vista.</p>}
         </div>
       )}
       {novo && <NovoProjeto fechar={() => setNovo(false)} />}
