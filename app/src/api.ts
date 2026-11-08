@@ -30,6 +30,7 @@ export type No = {
   literal?: boolean
   quantidade?: number
   modelo?: string
+  asset?: boolean         // imagem gerada durante uma página (placa de fundo, personagem isolado, textura): não é uma geração de tela
   aspecto?: string
   resolucao?: string
   saidas?: string[]
@@ -53,7 +54,7 @@ export type No = {
   altura?: number
   gerando?: boolean
   // site: uma versão de HTML (impl/<imagem>/<versão>/), montada no app a partir dos avanços (não é um arquivo de nó)
-  site?: { img: string; versao: string; trabalho?: Trabalho }
+  site?: { img: string; versao: string; trabalho?: Trabalho; foto?: number }   // foto: mtime do captura.png (o print)
 }
 
 export type Projeto = {
@@ -89,7 +90,7 @@ export type EstadoProjeto = {
 
 /** Imagem que avançou (o "fogo"): os vídeos que saíram dela e as tentativas de HTML em impl/<código>/vN/. */
 // origens: versão → vídeo de onde saiu · trabalhos: versão → a ficha impl.json do agente que a faz (docs/AGENTES.md)
-export type Avanco = { videos: string[]; impl: string[]; origens?: Record<string, string>; trabalhos?: Record<string, Trabalho> }
+export type Avanco = { videos: string[]; impl: string[]; origens?: Record<string, string>; trabalhos?: Record<string, Trabalho>; capturas?: Record<string, number> }
 export type Trabalho = {
   agente: string; status: 'trabalhando' | 'aguardando' | 'pronto' | 'erro' | 'abandonado'; etapa?: string; progresso?: number
   inicio?: string; atualizado?: string; fim?: string | null; nota?: string; erro?: string | null

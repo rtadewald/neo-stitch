@@ -4,13 +4,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
-  ArrowUp, BadgeCheck, BookOpen, Bot, CircleDot, Clapperboard, Pin, PinOff, Check, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, FileText, GitBranchPlus, ImagePlus,
-  Focus, LayoutGrid, AlignVerticalDistributeCenter, Maximize, Maximize2, Monitor, Trash2, UnfoldHorizontal, X,
+  ArrowUp, BookOpen, Bot, CircleDot, Clapperboard, Pin, PinOff, ChevronLeft, ChevronRight, ClipboardPaste, Copy, EyeOff, FileText, GitBranchPlus, ImagePlus,
+  Focus, LayoutGrid, ListFilter, CornerLeftUp, Layers, Box, Image as ImageIcon, MessageSquareText, PanelsTopLeft, AlignVerticalDistributeCenter, Maximize, Maximize2, Monitor, Trash2, UnfoldHorizontal, X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, arquivoUrl, dinheiro, rotaVista, type Estado, type No } from './api'
 import { CanvasCtx, type Ctx } from './ctx'
-import { arestas, arvore, caminhoAprovadas, descendentes, ehPonto, galhoCompleto, layoutArvore, medida, nosDeSite, ocultosSob, recorte, type ModoLayout } from './layout'
+import { arestas, arvore, filtrarArvore, caminhoAprovadas, descendentes, ehPonto, PONTO, galhoCompleto, layoutArvore, medida, nosDeSite, ocultosSob, recorte, type ModoLayout } from './layout'
 import { Menu, type ItemMenu } from './Menu'
 import { nodeTypes, type NoRF } from './nodes'
 import { Painel } from './Painel'
@@ -36,7 +36,15 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
   const [selecao, setSelecao] = useState<string[]>([])
   const [visto, setVisto] = useState<string | null>(null)
   const [aba, setAba] = useState<'brief' | 'diario' | null>(null)
-  const [esconder, setEsconder] = useState(() => localStorage.getItem('neo:esconder') === '1')
+  // o filtro do topo: o que está desmarcado (tipos e marcações); vazio = tudo aparece. Fica salvo por projeto, neste navegador
+  const [fora, setFora] = useState<Set<string>>(() => {
+    try {
+      const salvo = localStorage.getItem(`neo:filtro:${slug}`)
+      if (salvo) return new Set(JSON.parse(salvo) as string[])
+    } catch { /* sem localStorage */ }
+    return new Set(localStorage.getItem('neo:esconder') === '1' ? ['descartada'] : [])   // o antigo "esconder descartadas"
+  })
+  const [filtroAberto, setFiltroAberto] = useState(false)
   const [pontos, setPontos] = useState(() => localStorage.getItem('neo:pontos') !== '0')  // padrão: ligado
   const [focar, setFocar] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
@@ -55,9 +63,14 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
   const arrastando = useRef(new Set<string>())
   const [medidas, setMedidas] = useState(() => new Map<string, { w: number; h: number }>())
 
-  // acima de 100% de zoom, os controles dos cartões (ações, rodapé, marcas) ficam do tamanho da tela: --inv = 1/zoom
+  // acima de 100% de zoom, os controles dos cartões (ações, rodapé, marcas) ficam do tamanho da tela: --inv = 1/zoom.
+  // abaixo de 100%, --longe = 1/zoom (até 5): pedidos e referências engrossam a borda para não sumirem num canvas grande
   const raizCanvas = useRef<HTMLDivElement>(null)
-  const contraZoom = useCallback((z: number) => { raizCanvas.current?.style.setProperty('--inv', String(1 / Math.max(1, z))) }, [])
+  const contraZoom = useCallback((z: number) => {
+    const s = raizCanvas.current?.style
+    s?.setProperty('--inv', String(1 / Math.max(1, z)))
+    s?.setProperty('--longe', String(Math.min(5, 1 / Math.min(1, z))))
+  }, [])
   const limparSelecao = useCallback(() => setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))), [])
   // todos os nós do projeto + as versões de HTML (montadas dos avanços); `nos` é o que esta vista mostra
   const todos = useMemo(() => (estado ? [...estado.nos, ...nosDeSite(estado)] : []), [estado])
@@ -123,10 +136,47 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
   }, [confirmar, emLote, apagarDeVez, limparSelecao])
 
 
+  // o filtro: com algo desmarcado, a árvore vira só o que passa (cada nó no ancestral visível mais perto), sempre compacta e
+  // sem os ajustes manuais (eles valem para a árvore inteira)
+  const filtrando = [...fora].some((k) => k !== 'origem')   // 'origem' sozinho não filtra nada (os pedidos já aparecem)
+  const pinadosSet = useMemo(() => new Set(estado?.vistas.pinados || []), [estado?.vistas.pinados])
+  const filtrada = useMemo(() => {
+    if (!filtrando) return { nos, arv }
+    const restrito = MARCAS.some(([k]) => fora.has(k))
+    const tipoOk = (n: No) => {
+      if (fora.has(tipoFiltro(n))) return false
+      if (!temMarca(n)) return true
+      return marcasDe(n, pinadosSet).some((t) => !fora.has(t))
+    }
+    // "o pedido de onde cada um saiu": com Pedidos desmarcado, cada imagem, vídeo, 3D ou página que fica traz o pedido mais
+    // perto acima dela (e as referências desse pedido)
+    const origens = new Set<string>()
+    if (!fora.has('origem') && fora.has('pedido')) for (const n of nos) {
+      if (!temMarca(n) || !tipoOk(n)) continue
+      let p = arv.pai.get(n.id)
+      while (p && porId.get(p)?.tipo !== 'pedido') p = arv.pai.get(p)
+      if (!p || origens.has(p)) continue
+      origens.add(p)
+      for (const e of porId.get(p)!.entradas || []) if (porId.get(e)?.tipo === 'referencia') origens.add(e)
+    }
+    const passa = (n: No) => n.id === raiz || n.tipo === 'brief' || origens.has(n.id) || tipoOk(n)   // o brief nunca sai
+    // pedido (ou tela) com filhos só fica se algo abaixo dele ficar; sem filhos (rascunho, fila), fica
+    const podar = (n: No) => n.id !== raiz && n.tipo !== 'brief' && !temMarca(n) && !!(arv.filhos.get(n.id) || []).length && (n.tipo === 'pedido' || restrito)
+    return filtrarArvore(nos, arv, passa, podar)
+  }, [filtrando, nos, arv, fora, raiz, pinadosSet, porId])
+  // filtrado, arrastar move só nesta vista (não grava ajuste: a posição filtrada é provisória); trocar o filtro limpa
+  const [posFiltro, setPosFiltro] = useState<Record<string, { x: number; y: number }>>({})
+  const trocarFiltro = useCallback((novo: Set<string>) => {
+    setFora(novo)
+    setPosFiltro({})
+    try { localStorage.setItem(`neo:filtro:${slug}`, JSON.stringify([...novo])) } catch { /* sem localStorage */ }
+    enquadrarDepois.current = true
+  }, [slug])
+
   // a árvore se arranja sozinha (galhos recolhidos somem); só referências soltas guardam posição
   const posicoesArvore = useMemo(
-    () => layoutArvore(nos, arv, medidas, (n) => esconder && (n.tipo === 'imagem' || n.tipo === 'site') && n.estado === 'descartada', modo, pontos, compacto),
-    [nos, arv, medidas, esconder, modo, pontos, compacto],
+    () => layoutArvore(filtrada.nos, filtrada.arv, medidas, () => false, modo, pontos, compacto || filtrando),
+    [filtrada, medidas, modo, pontos, compacto, filtrando],
   )
   // o ajuste manual (arrastar) é um deslocamento sobre a posição automática, herdado por todo o galho
   const posicoesFinais = useMemo(() => {
@@ -143,23 +193,41 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       return v
     }
     for (const [id, p] of Object.entries(posicoesArvore)) {
+      if (filtrando) { out[id] = posFiltro[id] || p; continue }
       if (arv.soltos.has(id)) { out[id] = p; continue }
       const d = acumulado(id)
       out[id] = { x: p.x + d.x, y: p.y + d.y }
     }
+    // o pedido como ponto não fica preso: vai para o meio do caminho entre a origem e o que saiu dele, centrado nas saídas
+    // (arrastar uma imagem leva o ponto junto, sem a linha dar volta)
+    if (pontos) {
+      const a = filtrada.arv
+      const tam = (id: string) => medidas.get(id) || medida(porId.get(id)!)
+      for (const id of Object.keys(out)) {
+        const n = porId.get(id)
+        if (!n || !ehPonto(n)) continue
+        const fs = (a.filhos.get(id) || []).filter((f) => out[f])
+        if (!fs.length) continue
+        const esq = Math.min(...fs.map((f) => out[f].x))
+        const cs = fs.map((f) => out[f].y + tam(f).h / 2)
+        const pai = a.pai.get(id)
+        const dir = pai && out[pai] ? out[pai].x + tam(pai).w : esq - 120
+        out[id] = { x: Math.round((dir + esq) / 2 - PONTO / 2), y: Math.round((Math.min(...cs) + Math.max(...cs)) / 2 - PONTO / 2) }
+      }
+    }
     return out
-  }, [posicoesArvore, arv, porId])
+  }, [posicoesArvore, arv, porId, filtrando, posFiltro, pontos, filtrada.arv, medidas])
   const visiveis = useMemo(() => nos.filter((n) => posicoesArvore[n.id]), [nos, posicoesArvore])
   const galhoVisivel = useCallback((id: string) => {
     const out: string[] = []
     // o galho inclui as referências soltas usadas pelos pedidos dele (andam junto ao arrastar)
     const ir = (x: string) => {
-      for (const r of arv.anexos.get(x) || []) if (posicoesArvore[r] && !out.includes(r)) out.push(r)
-      for (const f of arv.filhos.get(x) || []) if (posicoesArvore[f]) { out.push(f); ir(f) }
+      for (const r of filtrada.arv.anexos.get(x) || []) if (posicoesArvore[r] && !out.includes(r)) out.push(r)
+      for (const f of filtrada.arv.filhos.get(x) || []) if (posicoesArvore[f]) { out.push(f); ir(f) }
     }
     ir(id)
     return out
-  }, [arv, posicoesArvore])
+  }, [filtrada.arv, posicoesArvore])
   const refs = useRef({ galhoVisivel, posicoesFinais })
   refs.current = { galhoVisivel, posicoesFinais }
 
@@ -171,10 +239,11 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
         const pos = arrastando.current.has(no.id) && a ? a.position : posicoesFinais[no.id]
         return { id: no.id, type: no.tipo, position: pos, data: { no }, selected: a?.selected ?? false,
           // a versão de HTML antiga (sem impl.json) não tem onde guardar a posição
-          draggable: no.tipo !== 'site' || !!no.site?.trabalho }
+          // filtrado, a posição é provisória: arrastar não grava ajuste
+          draggable: filtrando || no.tipo !== 'site' || !!no.site?.trabalho }
       })
     })
-  }, [visiveis, posicoesFinais])
+  }, [visiveis, posicoesFinais, filtrando])
 
   // pedido criado pelo botão direito: nasce no ponto clicado (um deslocamento sobre o lugar automático dele)
   useEffect(() => {
@@ -200,9 +269,23 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
     if (!dentro) rf.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: Math.max(zoom, 0.8), duration: 350 })
   }, [focar, nodes, rf])
 
+  // o caminho do que está selecionado (de onde veio e o que saiu dele): as linhas dele engrossam e ganham cor
+  const selIds = useMemo(() => nodes.filter((n) => n.selected).map((n) => n.id).join(' '), [nodes])
+  const caminhoSel = useMemo(() => {
+    const out = new Set<string>()
+    const a = filtrada.arv
+    const descer = (x: string) => { for (const f of a.filhos.get(x) || []) if (!out.has(f)) { out.add(f); descer(f) } }
+    for (const id of selIds.split(' ').filter(Boolean)) {
+      for (let p: string | undefined = id; p && !out.has(p); p = a.pai.get(p)) out.add(p)
+      out.add(id)
+      descer(id)
+    }
+    return out
+  }, [selIds, filtrada.arv])
   const edges: Edge[] = useMemo(() => {
     const ids = new Set(visiveis.map((n) => n.id))
-    return arestas(visiveis, arv)
+    const sel = new Set(selIds.split(' ').filter(Boolean))
+    return arestas(visiveis, filtrada.arv)
       .filter((a) => ids.has(a.de) && ids.has(a.para))
       .map((a) => {
         const alvo = porId.get(a.para)
@@ -210,9 +293,12 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
           (alvo?.tipo === 'imagem' || alvo?.tipo === 'video') && alvo.gerando || alvo?.site?.trabalho?.status === 'trabalhando'
         // o que leva a um HTML é verde-azulado; de uma versão para a evolução dela, tracejado
         const site = alvo?.tipo === 'site' ? ` deriva${porId.get(a.de)?.tipo === 'site' ? ' evolucao' : ''}` : ''
-        return { id: `${a.de}>${a.para}`, source: a.de, target: a.para, animated: !!vivo, className: `aresta ${a.tipo}${site}` }
+        // no caminho: linha da árvore com as duas pontas nele, ou uma entrada que toca um selecionado
+        const noCaminho = a.tipo === 'linha' ? caminhoSel.has(a.de) && caminhoSel.has(a.para) : sel.has(a.de) || sel.has(a.para)
+        return { id: `${a.de}>${a.para}`, source: a.de, target: a.para, animated: !!vivo,
+          className: `aresta ${a.tipo}${site}${noCaminho ? ' caminho' : ''}`, zIndex: noCaminho ? 1 : 0 }
       })
-  }, [visiveis, porId, arv])
+  }, [visiveis, porId, filtrada.arv, caminhoSel, selIds])
 
   const onNodesChange = useCallback((changes: NodeChange<NoRF>[]) => {
     setNodes((ns) => {
@@ -258,6 +344,24 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
 
   const onNodeDragStop = useCallback(
     (_: unknown, __: unknown, movidos: NoRF[]) => {
+      if (filtrando) {
+        const novo: Record<string, { x: number; y: number }> = {}
+        for (const n of movidos) for (const id of [n.id, ...galhoVisivel(n.id)]) {
+          const p = rf.getNode(id)?.position
+          if (p) novo[id] = { x: Math.round(p.x), y: Math.round(p.y) }
+        }
+        // ⌘Z desfaz: volta cada um para onde estava nesta vista (ou para o lugar automático)
+        const antes = Object.fromEntries(Object.keys(novo).map((id) => [id, posFiltro[id]]))
+        const aplicar = (m: Record<string, { x: number; y: number } | undefined>) => setPosFiltro((a) => {
+          const r = { ...a }
+          for (const [id, p] of Object.entries(m)) { if (p) r[id] = p; else delete r[id] }
+          return r
+        })
+        passo({ desfazer: async () => aplicar(antes), refazer: async () => aplicar(novo) })
+        aplicar(novo)
+        window.setTimeout(() => arrastando.current.clear(), 600)
+        return
+      }
       emLote(() => {
       const mapa: Record<string, { x: number; y: number }> = {}
       const ids = new Set(movidos.map((n) => n.id))
@@ -283,7 +387,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       // solta o "arrastando" depois que a posição nova já voltou do estado
       window.setTimeout(() => arrastando.current.clear(), 600)
     },
-    [posicoes, arv, posicoesFinais, porId, mudar, emLote, galhoVisivel, rf],
+    [posicoes, arv, posicoesFinais, porId, mudar, emLote, galhoVisivel, rf, filtrando, posFiltro, passo],
   )
 
   const onConnect = useCallback(
@@ -408,12 +512,12 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
     setAviso(`Nível ${n} · ⌘Z desfaz`)
   }, [nos, arv, porId, emLote, mudar])
 
-  // ⌘A: recolhe tudo o que não leva a uma imagem aprovada (uma ação comum: dá para expandir de volta, e o ⌘Z desfaz)
+  // ⌘A: recolhe tudo o que não leva a um nó pinado (uma ação comum: dá para expandir de volta, e o ⌘Z desfaz)
   const irParaAprovados = useCallback(() => {
     setFiltrouRaiz(true)
-    const pinados = new Set(estado?.vistas.pinados || [])      // o filtro mostra os aprovados e os pinados
+    const pinados = new Set(estado?.vistas.pinados || [])      // o caminho até os pinados
     const caminho = caminhoAprovadas(nos, arv, pinados)
-    if (!nos.some((n) => (n.tipo === 'imagem' && n.estado === 'aprovada') || pinados.has(n.id))) { setAviso('Nada aprovado nem pinado ainda'); return }
+    if (!nos.some((n) => pinados.has(n.id))) { setAviso('Nada pinado ainda'); return }
     emLote(() => {
       for (const n of nos) {
         const filhos = arv.filhos.get(n.id) || []
@@ -424,7 +528,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       }
     })
     enquadrarDepois.current = true
-    setAviso('Só o caminho até os aprovados e os pinados · ⌘Z desfaz')
+    setAviso('Só o caminho até os pinados · ⌘Z desfaz')
   }, [nos, arv, estado?.vistas.pinados, emLote, mudar])
 
   // ⌘Z desfaz, ⌘⇧Z (ou ⌘Y) refaz — fora dos campos de texto, que têm o próprio desfazer
@@ -436,7 +540,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       // ⌘+ / ⌘− dão zoom no canvas (em vez do zoom da página do navegador)
       if (k === '=' || k === '+') { e.preventDefault(); rf.zoomIn({ duration: 160 }); return }
       if (k === '-' || k === '_') { e.preventDefault(); rf.zoomOut({ duration: 160 }); return }
-      if (k === 'a') { e.preventDefault(); irParaAprovados(); return }  // ⌘A: só aprovados (em vez de selecionar a página)
+      if (k === 'a') { e.preventDefault(); irParaAprovados(); return }  // ⌘A: só pinados (em vez de selecionar a página)
       if (k === '1' || k === '2' || k === '3') { e.preventDefault(); recolherNivel(Number(k)); return }
       const refaz = (k === 'z' && e.shiftKey) || k === 'y'
       if (k !== 'z' && k !== 'y') return
@@ -473,7 +577,6 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       if (e.metaKey || e.ctrlKey || visto) return
       const k = e.key.toLowerCase()
       if ((k === '1' || k === '2' || k === '3') && !e.shiftKey && !e.altKey) { recolherNivel(Number(k)); return }
-      if (k === 'a' && soImagens.length) marcar(soImagens, 'aprovada')
       else if (k === 'd' && soImagens.length) marcar(soImagens, 'descartada')
       else if (k === 'n' && imgsSel.length) { e.preventDefault(); novoPedido(imgsSel.map((n) => n.id)) }
       else if (k === 'v' && soImagens.length === 1) { e.preventDefault(); pedidoVideo(soImagens[0].id) }
@@ -615,7 +718,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       icone: ocultosSob(arv, no) ? <ChevronRight size={15} /> : <ChevronLeft size={15} />, acao: () => alternar(no.id),
     }] : []
     const codigo: ItemMenu = { rotulo: `Copiar código ${no.id}`, icone: <Copy size={15} />, acao: () => copiar(no.id) }
-    // vistas: abrir o canvas a partir deste nó; pinar (a barra lateral; independe do aprovado)
+    // vistas: abrir o canvas a partir deste nó; pinar (a barra lateral)
     const abrirDaqui: ItemMenu[] = raiz === no.id ? [] : [{ rotulo: 'Abrir a partir daqui', icone: <Focus size={15} />, acao: () => abrirVista(no.id) }]
     const pinado = estado!.vistas.pinados.includes(no.id)
     const pinItem: ItemMenu = { rotulo: pinado ? 'Despinar' : 'Pinar', icone: pinado ? <PinOff size={15} /> : <Pin size={15} />,
@@ -628,7 +731,6 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       const imgs = grupo.filter((n) => n.tipo === 'imagem' && !n.gerando)
       const marcas: ItemMenu[] = imgs.length ? [
         'sep',
-        { rotulo: 'Aprovar', icone: <Check size={15} />, atalho: 'A', acao: () => marcar(imgs, 'aprovada') },
         { rotulo: 'Descartar', icone: <EyeOff size={15} />, atalho: 'D', acao: () => marcar(imgs, 'descartada') },
       ] : []
       return [
@@ -743,21 +845,22 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
           <span className="custo" title={`Hoje ${dinheiro(estado.custos.hoje)} · teto diário ${dinheiro(estado.projeto.tetos.diario_usd)}`}>
             {dinheiro(estado.custos.total)}
           </span>
-          <button type="button" className={`ico ${esconder ? 'on' : ''}`} title={esconder ? 'Mostrar descartadas' : 'Esconder descartadas'}
-            onClick={() => { setEsconder(!esconder); localStorage.setItem('neo:esconder', esconder ? '0' : '1') }}>
-            {esconder ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
-          <button type="button" className={`ico ${pontos ? 'on' : ''}`}
-            title={pontos ? 'Pedidos concluídos como pontos na linha (passe o mouse para ver) — clique para mostrar os cards' : 'Mostrar os pedidos concluídos como pontos na linha'}
-            onClick={() => { setPontos(!pontos); localStorage.setItem('neo:pontos', pontos ? '0' : '1') }}>
-            <CircleDot size={16} />
-          </button>
-          <button type="button" className="ico aprovados" title="Só aprovados e pinados: recolhe o resto (⌘A · ⌘Z desfaz)" onClick={irParaAprovados}>
-            <BadgeCheck size={16} />
+          <div className="organizar">
+            <button type="button" className={`ico rot ${filtrando || filtroAberto ? 'on' : ''}`}
+              title="Escolher o que aparece no canvas (tipos e marcações)" onClick={() => { setFiltroAberto(!filtroAberto); setOrganizar(false) }}>
+              <ListFilter size={16} /><span>{filtrando ? `Filtrado · ${visiveis.length}` : 'Filtrar'}</span>
+            </button>
+            {filtroAberto && (
+              <Filtro nos={nos} pinados={pinadosSet} fora={fora} trocar={trocarFiltro} fechar={() => setFiltroAberto(false)}
+                pontos={pontos} trocarPontos={(v) => { setPontos(v); localStorage.setItem('neo:pontos', v ? '1' : '0') }} />
+            )}
+          </div>
+          <button type="button" className="ico rot aprovados" title="Só o caminho até os pinados: recolhe o resto (⌘A · ⌘Z desfaz)" onClick={irParaAprovados}>
+            <Pin size={16} /><span>Só pinados</span>
           </button>
           <div className="organizar">
-            <button type="button" className={`ico ${organizar ? 'on' : ''}`} title="Organizar o canvas" onClick={() => setOrganizar(!organizar)}>
-              <LayoutGrid size={16} />
+            <button type="button" className={`ico rot ${organizar ? 'on' : ''}`} title="Organizar o canvas: modos, otimizar espaço, níveis" onClick={() => { setOrganizar(!organizar); setFiltroAberto(false) }}>
+              <LayoutGrid size={16} /><span>Organizar</span>
             </button>
             {organizar && (
               <div className="pop-organizar" onPointerLeave={() => setOrganizar(false)}>
@@ -774,7 +877,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
                   <AlignVerticalDistributeCenter size={15} /> Otimizar espaço <span className="mudo">{compacto && deslocados.length ? `fecha os vãos · ${deslocados.length} ajustes` : 'fecha os vãos'}</span>
                 </button>
                 <button type="button" className="acao-pop" onClick={() => { irParaAprovados(); setOrganizar(false) }}>
-                  <Check size={15} /> Só aprovados <kbd>⌘A</kbd>
+                  <Pin size={15} /> Só pinados <kbd>⌘A</kbd>
                 </button>
                 <button type="button" className="acao-pop" disabled={!deslocados.length}
                   onClick={() => emLote(() => deslocados.forEach((n) => mudar(n.id, { desloc: null })))}>
@@ -798,12 +901,12 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
             )}
           </div>
           {videosRecorte.length > 0 && (
-            <button type="button" className={`ico ${spec ? 'on' : ''}`} title="Delegar o vídeo → HTML para outros agentes (a spec)" onClick={() => setSpec(true)}>
-              <Bot size={16} />
+            <button type="button" className={`ico rot ${spec ? 'on' : ''}`} title="Delegar o vídeo → HTML para outros agentes (a spec)" onClick={() => setSpec(true)}>
+              <Bot size={16} /><span>Agentes</span>
             </button>
           )}
-          <button type="button" className={`ico ${aba ? 'on' : ''}`} title="Brief e diário" onClick={() => setAba(aba ? null : 'diario')}>
-            <BookOpen size={16} />
+          <button type="button" className={`ico rot ${aba ? 'on' : ''}`} title="Brief e diário" onClick={() => setAba(aba ? null : 'diario')}>
+            <BookOpen size={16} /><span>Diário</span>
           </button>
         </header>
         {spec && videosRecorte.length > 0 && (
@@ -825,7 +928,6 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
             {soImagens.length > 0 && (
               <>
                 <span className="sep" />
-                <button type="button" className="ico" title="Aprovar (A)" onClick={() => marcar(soImagens, 'aprovada')}><Check size={16} /></button>
                 <button type="button" className="ico" title="Descartar (D)" onClick={() => marcar(soImagens, 'descartada')}><EyeOff size={16} /></button>
               </>
             )}
@@ -928,9 +1030,9 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
 
 function corMinimapa(n: { data: unknown }) {
   const no = (n.data as { no: No }).no
-  if (no.tipo === 'imagem') return no.estado === 'aprovada' ? '#13a35a' : no.estado === 'descartada' ? '#e3e5e9' : '#b9bec7'
-  if (no.tipo === 'video') return no.estado === 'aprovada' ? '#13a35a' : '#7a6cf0'
-  if (no.tipo === 'site') return no.estado === 'aprovada' ? '#13a35a' : '#0d9488'
+  if (no.tipo === 'imagem') return no.estado === 'descartada' ? '#e3e5e9' : '#b9bec7'
+  if (no.tipo === 'video') return '#7a6cf0'
+  if (no.tipo === 'site') return '#0d9488'
   if (no.tipo === 'pedido') return '#3d5afe'
   if (no.tipo === 'referencia') return '#d0d4da'
   return '#111318'
@@ -984,5 +1086,71 @@ function PreviaNivel({ n }: { n: number }) {
     <svg viewBox="0 0 40 16" className="previa-nivel" aria-hidden>
       {[0, 1, 2, 3].map((i) => <rect key={i} x={i * 10} y={4} width={7} height={8} rx={1.5} className={i <= n ? 'on' : ''} />)}
     </svg>
+  )
+}
+
+// ---------- o filtro do topo ----------
+const TIPOS = [
+  ['imagem', 'Imagens', ImageIcon], ['video', 'Vídeos', Clapperboard], ['site', 'Páginas HTML', Monitor], ['modelo', 'Modelos 3D', Box], ['asset', 'Assets', Layers],
+  ['pedido', 'Pedidos', MessageSquareText], ['tela', 'Telas', PanelsTopLeft],
+] as const
+const MARCAS = [['pinado', 'Pinados', Pin], ['neutra', 'Sem marca', null], ['descartada', 'Descartados', X]] as const
+/** A marcação de um nó no filtro: descartado ou sem marca (o `aprovada` antigo conta como sem marca), mais pinado. */
+const marcasDe = (n: No, pinados: Set<string>) => [n.estado === 'descartada' ? 'descartada' : 'neutra', ...(pinados.has(n.id) ? ['pinado'] : [])]
+/** No filtro, a referência conta como pedido (é o que o usuário mandou: texto + imagens). */
+const tipoFiltro = (n: No) => (n.tipo === 'referencia' ? 'pedido' : n.asset ? 'asset' : n.tipo)
+/** Os nós que o usuário aprova ou descarta (os outros — pedidos, referências, telas — não têm marcação). */
+const temMarca = (n: No) => n.tipo === 'imagem' || n.tipo === 'video' || n.tipo === 'modelo' || n.tipo === 'site'
+
+function Filtro({ nos, pinados, fora, trocar, fechar, pontos, trocarPontos }: {
+  nos: No[]; pinados: Set<string>; fora: Set<string>; trocar: (s: Set<string>) => void; fechar: () => void
+  pontos: boolean; trocarPontos: (v: boolean) => void
+}) {
+  const conta = new Map<string, number>()
+  const mais = (k: string) => conta.set(k, (conta.get(k) || 0) + 1)
+  for (const n of nos) {
+    mais(tipoFiltro(n))
+    if (!temMarca(n)) continue
+    for (const t of marcasDe(n, pinados)) mais(t)
+  }
+  const alternar = (k: string) => {
+    const novo = new Set(fora)
+    if (novo.has(k)) novo.delete(k)
+    else novo.add(k)
+    trocar(novo)
+  }
+  const linha = (k: string, rotulo: string, Icone: typeof Box | null) => (
+    <label key={k} className={`linha-filtro ${conta.get(k) ? '' : 'vazia'}`}>
+      <input type="checkbox" checked={!fora.has(k)} onChange={() => alternar(k)} />
+      {Icone ? <Icone size={14} /> : <span className="sem-icone" />}
+      <span>{rotulo}</span>
+      <span className="mudo">{conta.get(k) || 0}</span>
+    </label>
+  )
+  return (
+    <div className="pop-organizar pop-filtro" onPointerLeave={fechar}>
+      <div className="cab-filtro">
+        <span>Mostrar</span>
+        <button type="button" className="link-filtro" onClick={() => trocar(new Set())}>Tudo</button>
+        {/* Nada desmarca só os tipos: marcar um depois já o mostra, sem ter de religar as marcações */}
+        <button type="button" className="link-filtro" onClick={() => trocar(new Set([...TIPOS.map(([k]) => k), ...[...fora].filter((k) => MARCAS.some(([m]) => m === k))]))}>Nada</button>
+      </div>
+      {TIPOS.map(([k, r, I]) => linha(k, r, I))}
+      <label className={`linha-filtro sub ${fora.has('pedido') ? '' : 'vazia'}`}
+        title="Mesmo com Pedidos desmarcado, cada imagem, vídeo, 3D, asset ou página aparece com o pedido que a gerou (e as referências dele)">
+        <input type="checkbox" checked={!fora.has('pedido') || !fora.has('origem')} disabled={!fora.has('pedido')} onChange={() => alternar('origem')} />
+        <CornerLeftUp size={14} />
+        <span>com o pedido de onde cada um saiu</span>
+      </label>
+      <label className={`linha-filtro sub ${fora.has('pedido') && fora.has('origem') ? 'vazia' : ''}`}
+        title="Cada pedido concluído vira um ponto pequeno na linha entre a imagem de origem e as que saíram dele (passe o mouse para ver o card)">
+        <input type="checkbox" checked={pontos} disabled={fora.has('pedido') && fora.has('origem')} onChange={() => trocarPontos(!pontos)} />
+        <CircleDot size={14} />
+        <span>pedidos concluídos como ponto</span>
+      </label>
+      <span className="menu-sep" />
+      <div className="cab-filtro"><span>Marcação</span><span className="mudo">imagens, vídeos, 3D, assets, páginas</span></div>
+      {MARCAS.map(([k, r, I]) => linha(k, r, I))}
+    </div>
   )
 }

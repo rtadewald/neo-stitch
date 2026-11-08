@@ -316,7 +316,8 @@ def rev(slug: str) -> str:
     d = pasta(slug)
     marcas = []
     # impl/: uma versão nova muda a pasta da imagem; impl.json (ou origem.json) diz quem faz, de qual vídeo e em que pé está
-    impl = [*sorted((d / 'impl').glob('*')), *sorted((d / 'impl').glob('*/*/impl.json')), *sorted((d / 'impl').glob('*/*/origem.json'))]
+    impl = [*sorted((d / 'impl').glob('*')), *sorted((d / 'impl').glob('*/*/impl.json')), *sorted((d / 'impl').glob('*/*/origem.json')),
+            *sorted((d / 'impl').glob('*/*/captura.png'))]
     for f in [d / 'projeto.json', d / 'brief.md', d / 'diario.md', *sorted((d / 'nodes').glob('*.json')), *impl]:
         try:
             marcas.append(f'{f.relative_to(d)}:{f.stat().st_mtime_ns}')
@@ -385,11 +386,15 @@ def avancos(slug: str, lista: list[dict] | None = None) -> dict:
                         a['origens'][v] = ficha['video']
                     if ficha.get('agente'):
                         a['trabalhos'][v] = {k: ficha.get(k) for k in TRABALHO}
+                    foto = d / v / (ficha.get('captura') or 'captura.png')
+                    if foto.exists():
+                        a['capturas'][v] = int(foto.stat().st_mtime)
     return out
 
 
 def novo_avanco() -> dict:
-    return {'videos': [], 'impl': [], 'origens': {}, 'trabalhos': {}}
+    # capturas: {versão: mtime do print}: o cartão mostra a foto e só roda a página viva com o mouse em cima
+    return {'videos': [], 'impl': [], 'origens': {}, 'trabalhos': {}, 'capturas': {}}
 
 
 # o que o app mostra de impl.json (o contrato completo em docs/AGENTES.md); base/pedido: evolução (v1 → v1.1);
@@ -410,6 +415,46 @@ def arquivo_entrada(slug: str, cod: str) -> Path | None:
     no = ler_json(caminho_no(slug, cod))
     f = pasta(slug) / no['arquivo'] if no and no.get('arquivo') else None
     return f if f and f.exists() else None
+
+
+CHROME = Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+
+
+def captura_velha(d: Path) -> bool:
+    """A versão pronta precisa de print: não tem `captura.png`, ou a página (index.html, assets/) mudou depois dele. Um print com
+    outro nome (`captura` no impl.json) é do agente e não é refeito."""
+    ficha = ler_json(d / 'impl.json', None) or {}
+    if ficha.get('captura') not in (None, 'captura.png') or not (d / 'index.html').exists():
+        return False
+    if ficha.get('agente') and ficha.get('status') != 'pronto':
+        return False
+    foto = d / 'captura.png'
+    if not foto.exists():
+        return True
+    fontes = [d / 'index.html', *(f for f in (d / 'assets').rglob('*') if f.is_file())] if (d / 'assets').is_dir() else [d / 'index.html']
+    return max(f.stat().st_mtime for f in fontes) > foto.stat().st_mtime
+
+
+def capturar(d: Path, url: str) -> bool:
+    """O print da página (captura.png) com o Chrome sem janela, no tamanho da imagem de referência, depois de 6 s de animação."""
+    if not CHROME.exists():
+        return False
+    w, h = (medidas(d / 'reference.png') if (d / 'reference.png').exists() else None) or (1536, 864)
+    tmp = d / '.captura-tmp.png'
+    with tempfile.TemporaryDirectory() as perfil:
+        try:
+            subprocess.run([str(CHROME), '--headless=new', '--hide-scrollbars', '--mute-audio', '--no-first-run', '--no-default-browser-check',
+                            f'--user-data-dir={perfil}', f'--window-size={w},{h}', '--virtual-time-budget=6000',
+                            '--use-angle=swiftshader', '--enable-unsafe-swiftshader', f'--screenshot={tmp}', url],
+                           capture_output=True, timeout=90)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+    if not tmp.exists() or tmp.stat().st_size < 1000:
+        tmp.unlink(missing_ok=True)
+        return False
+    subprocess.run(['sips', '-Z', '1280', str(tmp)], capture_output=True)   # o cartão tem 720 px: 1280 basta
+    os.replace(tmp, d / 'captura.png')
+    return True
 
 
 def ordem_versao(nome: str) -> tuple:

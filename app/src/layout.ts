@@ -124,12 +124,83 @@ export function nosDeSite(estado: EstadoProjeto): No[] {
       out.push({
         id: `${img}/${v}`, tipo: 'site', criado: t?.inicio || '', pos: null, desloc: t?.desloc ?? null, comentarios: [],
         pedido: base || origens[0] || img, entradas: base ? origens : origens.slice(1),
-        nome: t?.agente, estado: t?.estado || 'neutra', site: { img, versao: v, trabalho: t },
-        ...(t?.captura ? { arquivo: `impl/${img}/${v}/${t.captura}` } : {}),
+        nome: t?.agente, estado: t?.estado || 'neutra', site: { img, versao: v, trabalho: t, foto: av.capturas?.[v] },
+        ...(t?.captura || av.capturas?.[v] ? { arquivo: `impl/${img}/${v}/${t?.captura || 'captura.png'}` } : {}),
       })
     }
   }
   return out
+}
+
+/**
+ * A árvore filtrada (o "Filtrar" do topo): só os nós que passam, cada um pendurado no ancestral visível mais perto (sem os
+ * pedidos, a imagem liga direto na imagem de onde saiu). `podar`: nós que só ficam se algo abaixo deles ficar (o pedido cujas
+ * imagens saíram do filtro). O que está recolhido ou escondido na árvore inteira continua fora.
+ */
+export function filtrarArvore(nos: No[], a: Arvore, passa: (n: No) => boolean, podar: (n: No) => boolean): { nos: No[]; arv: Arvore } {
+  const porId = new Map(nos.map((n) => [n.id, n]))
+  const aberto = new Map<string, boolean>()
+  const estaAberto = (id: string): boolean => {
+    const c = aberto.get(id)
+    if (c !== undefined) return c
+    const p = a.pai.get(id)
+    const pn = p ? porId.get(p) : undefined
+    const v = !pn || (!pn.recolhido && !(pn.escondidos || []).includes(id) && estaAberto(p!))
+    aberto.set(id, v)
+    return v
+  }
+  const memo = new Map<string, boolean>()
+  const abaixo = new Map<string, boolean>()
+  const temAbaixo = (id: string): boolean => {
+    const c = abaixo.get(id)
+    if (c !== undefined) return c
+    const v = (a.filhos.get(id) || []).some((f) => fica(f) || temAbaixo(f))
+    abaixo.set(id, v)
+    return v
+  }
+  const fica = (id: string): boolean => {
+    const c = memo.get(id)
+    if (c !== undefined) return c
+    const n = porId.get(id)!
+    const v = estaAberto(id) && passa(n) && (!podar(n) || temAbaixo(id))
+    memo.set(id, v)
+    return v
+  }
+  const dentro = nos.filter((n) => fica(n.id))
+  const ids = new Set(dentro.map((n) => n.id))
+  const pai = new Map<string, string>()
+  for (const n of dentro) {
+    let p = a.pai.get(n.id)
+    while (p && !ids.has(p)) p = a.pai.get(p)
+    if (p) pai.set(n.id, p)
+  }
+  const filhos = new Map<string, string[]>()
+  for (const n of [...dentro].sort((x, y) => x.id.localeCompare(y.id))) {
+    const p = pai.get(n.id)
+    if (!p) continue
+    const fs = filhos.get(p)
+    if (fs) fs.push(n.id)
+    else filhos.set(p, [n.id])
+  }
+  const soltos = new Set([...a.soltos].filter((id) => ids.has(id)))
+  const anexos = new Map<string, string[]>()
+  const donoDe = new Map<string, string>()
+  for (const [ped, rs] of a.anexos) {
+    if (!ids.has(ped)) continue
+    const ok = rs.filter((r) => ids.has(r))
+    if (ok.length) anexos.set(ped, ok)
+    for (const r of ok) donoDe.set(r, ped)
+  }
+  const total = new Map<string, number>()
+  const contar = (id: string): number => {
+    const c = total.get(id)
+    if (c !== undefined) return c
+    const v = (filhos.get(id) || []).reduce((s, f) => s + 1 + contar(f), 0)
+    total.set(id, v)
+    return v
+  }
+  for (const id of filhos.keys()) contar(id)
+  return { nos: dentro, arv: { pai, filhos, soltos, anexos, donoDe, total } }
 }
 
 /** O recorte a partir de um nó (uma vista): ele, tudo o que saiu dele (com as referências soltas desses pedidos) e os pedidos
@@ -155,12 +226,12 @@ export function galhoCompleto(a: Arvore, id: string): string[] {
   return out
 }
 
-/** O caminho até as imagens aprovadas e os nós em `extras` (os pinados): eles + todos os ancestrais (+ referências soltas
+/** O caminho até os nós em `extras` (os pinados): eles + todos os ancestrais (+ referências soltas
  * usadas pelos pedidos do caminho). */
 export function caminhoAprovadas(nos: No[], a: Arvore, extras: Set<string> = new Set()): Set<string> {
   const out = new Set<string>()
   for (const n of nos) {
-    if (!(n.tipo === 'imagem' && n.estado === 'aprovada') && !extras.has(n.id)) continue
+    if (!extras.has(n.id)) continue
     for (let cur: string | undefined = n.id; cur && !out.has(cur); cur = a.pai.get(cur)) out.add(cur)
   }
   for (const id of [...out]) for (const r of a.anexos.get(id) || []) out.add(r)
@@ -181,6 +252,8 @@ export function descendentes(a: Arvore, id: string): number {
 export type ModoLayout = 'pilha' | 'grade' | 'grade3' | 'grade4' | 'grade5'
 const POR_COLUNA = 3   // no modo grade: quantas folhas por coluna antes de abrir a próxima
 const GAP_COL = 36
+const GAP_PAI_X = 320   // grade: entre colunas quando a de trás tem galho
+const GAP_PAI_Y = 140   // entre irmãos empilhados quando um deles tem galho
 
 /**
  * Os nós visíveis e suas posições: árvore da esquerda para a direita, irmãos empilhados, pai centrado nos filhos.
@@ -222,7 +295,8 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
   }
 
   // modos grade N×N (3, 4, 5): em TODO nível os filhos — com ou sem galho — vão em colunas de N; cada um ocupa o bloco do
-  // próprio galho (largura e altura da subárvore), e as colunas ficam lado a lado
+  // próprio galho (largura e altura da subárvore), e as colunas ficam lado a lado. Entre blocos que têm galho o espaço é
+  // maior (GAP_PAI_X/Y): um pai não encosta nos filhos do vizinho e não parece filho dele
   const larguras = new Map<string, number>()
   const porCol = modo === 'grade5' ? 5 : modo === 'grade4' ? 4 : 3   // grade N×N: N filhos por coluna
   const emGradeN = modo === 'grade3' || modo === 'grade4' || modo === 'grade5'
@@ -232,16 +306,20 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
     for (let i = 0; i < fs.length; i += porCol) cols.push(fs.slice(i, i + porCol))
     return cols
   }
+  const temGalho = (id: string) => visiveisDe(id).length > 0
+  // o espaço entre dois irmãos de uma coluna, e o que vem depois de uma coluna
+  const gapY = (a: string, b: string) => (temGalho(a) || temGalho(b) ? GAP_PAI_Y : GAP_Y)
+  const gapCol = (c: string[]) => (c.some(temGalho) ? GAP_PAI_X : GAP_COL * 2)
+  const altColuna = (c: string[]) => c.reduce((s, f, i) => s + alturas.get(f)! + (i ? gapY(c[i - 1], f) : 0), 0)
   const medir3 = (id: string): { w: number; h: number } => {
     const cols = colunas(id)
     let cw = 0
     let ch = 0
-    for (const c of cols) {
+    cols.forEach((c, k) => {
       const tams = c.map((f) => medir3(f))
-      cw += Math.max(...tams.map((t) => t.w))
-      ch = Math.max(ch, tams.reduce((s, t) => s + t.h, 0) + GAP_Y * (c.length - 1))
-    }
-    if (cols.length) cw += GAP_COL * 2 * (cols.length - 1)
+      cw += Math.max(...tams.map((t) => t.w)) + (k < cols.length - 1 ? gapCol(c) : 0)
+      ch = Math.max(ch, altColuna(c))
+    })
     const w = m(id).w + (cols.length ? GAP_X + cw : 0)
     const h = Math.max(m(id).h, ch)
     larguras.set(id, w)
@@ -255,14 +333,14 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
     let cx = x + w + GAP_X
     const centros: number[] = []
     for (const c of cols) {
-      const altCol = c.reduce((s, f) => s + alturas.get(f)!, 0) + GAP_Y * (c.length - 1)
-      let y = topo + (H - altCol) / 2
-      for (const f of c) {
+      let y = topo + (H - altColuna(c)) / 2
+      c.forEach((f, i) => {
+        if (i) y += gapY(c[i - 1], f)
         colocar3(f, cx, y)
         centros.push(pos[f].y + m(f).h / 2)
-        y += alturas.get(f)! + GAP_Y
-      }
-      cx += Math.max(...c.map((f) => larguras.get(f)!)) + GAP_COL * 2
+        y += alturas.get(f)!
+      })
+      cx += Math.max(...c.map((f) => larguras.get(f)!)) + gapCol(c)
     }
     const centro = centros.length ? (Math.min(...centros) + Math.max(...centros)) / 2 : topo + H / 2
     pos[id] = { x: Math.round(x), y: Math.round(centro - h / 2) }
@@ -328,9 +406,13 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
     const { folhas, galhos } = separar(id)
     return [[...(folhas.length ? [folhas] : []), ...galhos.map((f) => [f])]]
   }
-  const empilhar = (pilha: string[][], gap: number) => {
+  const empilhar = (pilha: string[][], gap0: number) => {
     const acima: Caixa[] = []
+    let antes: string[] = []
     for (const g of pilha) {
+      // na grade, blocos com galho guardam o espaço maior (um pai não encosta nos filhos do vizinho)
+      const gap = emGradeN && (g.some(temGalho) || antes.some(temGalho)) ? Math.max(gap0, GAP_PAI_Y) : gap0
+      antes = g
       const ids = g.flatMap(galho)
       const cx = ids.map(caixa)
       let dy = Infinity
@@ -363,6 +445,23 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
   if (compacto) {
     for (const r of raizes) compactar(r.id)
     empilhar(raizes.map((r) => [r.id]), 80)
+  }
+  // várias raízes (ex.: um filtro que tirou o que as ligava): em linhas, como uma grade, em vez de uma coluna comprida
+  if (compacto && raizes.length > 1) {
+    const blocos = raizes.map((r) => {
+      const ids = galho(r.id)
+      const cx = ids.map(caixa)
+      const x0 = Math.min(...cx.map((c) => c.x)), y0 = Math.min(...cx.map((c) => c.y))
+      return { ids, x0, y0, w: Math.max(...cx.map((c) => c.x + c.w)) - x0, h: Math.max(...cx.map((c) => c.y + c.h)) - y0 }
+    })
+    const largura = Math.max(...blocos.map((b) => b.w), Math.sqrt(blocos.reduce((s, b) => s + (b.w + 80) * (b.h + 80), 0) * 16 / 9))
+    let x = 0, y = 0, alturaLinha = 0
+    for (const b of blocos) {
+      if (x > 0 && x + b.w > largura) { x = 0; y += alturaLinha + 80; alturaLinha = 0 }
+      for (const id of b.ids) pos[id] = { x: Math.round(pos[id].x - b.x0 + x), y: Math.round(pos[id].y - b.y0 + y) }
+      x += b.w + GAP_COL * 2
+      alturaLinha = Math.max(alturaLinha, b.h)
+    }
   }
   let ys = 0
   for (const id of a.soltos) {

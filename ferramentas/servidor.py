@@ -33,8 +33,10 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import queue
 import subprocess
 import sys
+import threading
 from typing import Callable
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -172,6 +174,7 @@ def estado(h, m, corpo):
     d = B.pasta(slug)
     lista = B.nos(slug)
     av = B.avancos(slug, lista)
+    pedir_fotos(slug, av)
     return {'rev': r, 'projeto': B.ler_projeto(slug), 'nos': lista, 'custos': B.custos(slug, lista),
             'brief': (d / 'brief.md').read_text(encoding='utf-8') if (d / 'brief.md').exists() else '',
             'diario': (d / 'diario.md').read_text(encoding='utf-8') if (d / 'diario.md').exists() else '',
@@ -579,10 +582,49 @@ def garantir_build() -> None:
               flush=True)
 
 
+# ---------- os prints das páginas ----------
+# O cartão de uma página mostra o print (captura.png) e só roda a página viva com o mouse em cima: dezenas de páginas com
+# WebGL rodando juntas travam o canvas. O servidor tira os prints que faltam (ou ficaram velhos), um de cada vez, ao fundo.
+FOTOS: queue.Queue = queue.Queue()
+NA_FILA: set[str] = set()
+FALHAS: dict[str, float] = {}   # versão → mtime do index.html quando o print falhou (não tenta de novo até a página mudar)
+PORTA_ATUAL = PORTA
+
+
+def pedir_fotos(slug: str, av: dict) -> None:
+    for img, a in av.items():
+        for v in a['impl']:
+            chave = f'{slug}/{img}/{v}'
+            d = B.pasta(slug) / 'impl' / img / v
+            if chave in NA_FILA or not B.captura_velha(d):
+                continue
+            if FALHAS.get(chave) == (d / 'index.html').stat().st_mtime:
+                continue
+            NA_FILA.add(chave)
+            FOTOS.put((slug, img, v))
+
+
+def fotografo() -> None:
+    while True:
+        slug, img, v = FOTOS.get()
+        chave = f'{slug}/{img}/{v}'
+        d = B.pasta(slug) / 'impl' / img / v
+        try:
+            if B.captura_velha(d) and not B.capturar(d, f'http://127.0.0.1:{PORTA_ATUAL}/projects/{slug}/impl/{img}/{v}/index.html'):
+                FALHAS[chave] = (d / 'index.html').stat().st_mtime
+        except OSError:
+            pass
+        finally:
+            NA_FILA.discard(chave)
+
+
 def main() -> None:
+    global PORTA_ATUAL
     porta = int(sys.argv[1]) if len(sys.argv) > 1 else PORTA
+    PORTA_ATUAL = porta
     B.PROJETOS.mkdir(exist_ok=True)
     garantir_build()
+    threading.Thread(target=fotografo, daemon=True).start()
     srv = Servidor(('127.0.0.1', porta), Handler)
     print(f'Neo Stitch em http://localhost:{porta}/', flush=True)
     try:

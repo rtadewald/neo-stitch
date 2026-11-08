@@ -21,12 +21,26 @@ export function Viewer({ id, fechar, navegar }: { id: string; fechar: () => void
   const [foco, setFoco] = useState<string | null>(null)
   const entrada = useRef<HTMLTextAreaElement>(null)
 
-  // os pares: os irmãos na árvore que têm imagem (as saídas do mesmo pedido; numa referência, as outras da mesma tela)
-  const irmas = useMemo(() => {
-    const pai = arv.pai.get(no.id)
-    const lista = (pai ? arv.filhos.get(pai) || [] : [no.id]).filter((id) => porId.get(id)?.arquivo)
-    return lista.includes(no.id) ? lista : [no.id]
-  }, [no.id, arv, porId])
+  // o nível: os irmãos da mesma espécie (imagem, asset, vídeo, 3D, página) em grupos, um por pai, e os pais são os irmãos do
+  // pai deste (2 referências com 3 filhos cada = 2 grupos de 3, separados por um traço). Os pedidos no meio não contam
+  const grupos = useMemo(() => {
+    const especie = (n?: No) => (n ? (n.asset ? 'asset' : n.tipo) : '')
+    const e = especie(no)
+    // atravessa os pedidos e, para quem não é asset, os assets (a página pende da placa de fundo, mas é "filha" da imagem)
+    const pula = (id: string) => { const n = porId.get(id); return n?.tipo === 'pedido' || (!!n?.asset && e !== 'asset') }
+    const paiGer = (id: string) => { let p = arv.pai.get(id); while (p && pula(p)) p = arv.pai.get(p); return p }
+    const filhosGer = (id: string): string[] => (arv.filhos.get(id) || []).flatMap((c) => (pula(c) ? filhosGer(c) : [c]))
+    const entra = (id: string) => { const n = porId.get(id); return !!n && especie(n) === e && !!(n.arquivo || n.thumb) }
+    const p = paiGer(no.id)
+    if (!p) return [[no.id]]
+    const q = paiGer(p)
+    const pais = q ? filhosGer(q).filter((x) => especie(porId.get(x)) === especie(porId.get(p))) : [p]
+    if (!pais.includes(p)) pais.push(p)
+    const gs = pais.map((x) => filhosGer(x).filter(entra)).filter((g) => g.length)
+    return gs.some((g) => g.includes(no.id)) ? gs : [[no.id]]
+  }, [no, arv, porId])
+  const irmas = useMemo(() => grupos.flat(), [grupos])
+  const grupoDe = useMemo(() => new Map(grupos.flatMap((g, k) => g.map((id) => [id, k] as const))), [grupos])
   const i = irmas.indexOf(no.id)
   const faixaRef = useRef<HTMLDivElement>(null)
   const pedido = no.tipo === 'imagem' || ehVideo ? porId.get(no.pedido || '') : undefined
@@ -126,14 +140,15 @@ export function Viewer({ id, fechar, navegar }: { id: string; fechar: () => void
         {i < irmas.length - 1 && <button type="button" className="nav dir" title="Próxima (→)" onClick={(e) => { e.stopPropagation(); navegar(irmas[i + 1]) }}><ChevronRight size={22} /></button>}
         </div>
         {faixa.length > 1 && (
-          // filme estilo Finder: as irmãs (mesmo pedido) — ou, numa referência, as imagens que saíram dela
+          // filme estilo Finder: o nível inteiro, com um respiro entre as saídas de cada pedido
           <div className="faixa" ref={faixaRef} onClick={(e) => e.stopPropagation()}>
-            {faixa.map((n) => (
+            {faixa.map((n, k) => [
+              k > 0 && grupoDe.get(n.id) !== grupoDe.get(faixa[k - 1].id) && <span key={`sep-${n.id}`} className="faixa-sep" />,
               <button key={n.id} type="button" data-id={n.id} className={`quadrinho ${n.id === no.id ? 'atual' : ''} es-${n.estado || 'neutra'}`}
                 title={`${n.id} ${n.nome || ''}`} onClick={() => navegar(n.id)}>
                 <img src={arquivoUrl(slug, n.thumb || n.arquivo)} alt="" draggable={false} />
-              </button>
-            ))}
+              </button>,
+            ])}
           </div>
         )}
       </div>

@@ -215,8 +215,8 @@ def cmd_abandonar(a):
 
 
 def cmd_asset(a):
-    """Uma imagem gerada durante a implementação é um asset do projeto: vira nó de imagem num pedido (um por versão) que sai
-    do vídeo da versão, para aparecer no canvas e servir de base para iterar."""
+    """Uma imagem gerada durante a implementação é um asset do projeto: vira nó de imagem com `asset: true` (no app, a
+    categoria "Assets", separada das telas geradas) num pedido (um por versão) que sai do vídeo da versão."""
     slug, d = achar_versao(a.versao)
     origem = Path(a.arquivo)
     if not origem.is_file():
@@ -238,7 +238,7 @@ def cmd_asset(a):
             ficha['assets_pedido'] = pid
             B.gravar_json(d / 'impl.json', ficha)
         img = B.novo_no(slug, 'imagem', pedido=pid, nome=a.nome, prompt=a.nota or a.nome, origem=f'{a.versao} · {origem.name}',
-                        custo=a.custo, modelo='asset')
+                        custo=a.custo, modelo='asset', asset=True)
         arq = pasta / 'images' / f"{img['id']}.png"
         if origem.suffix.lower() == '.png':
             shutil.copyfile(origem, arq)

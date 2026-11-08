@@ -1,7 +1,7 @@
 import { Handle, Position, useStore, type Node, type NodeProps } from '@xyflow/react'
 import {
   AppWindow, ArrowUp, Bot, Box, Check, ChevronDown, Code2, ExternalLink, Flag, FolderOpen, Globe, LayoutDashboard, Link2, LoaderCircle, MessageCircle,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clapperboard, Focus, Image as ImageIcon, Pin, PinOff, Minus, Play, Plus, Quote, RotateCw, Smartphone, Sparkles, Trash2, TriangleAlert, X, Archive,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clapperboard, Focus, Image as ImageIcon, Layers, Pin, PinOff, Minus, Play, Plus, Quote, RotateCw, Smartphone, Sparkles, Trash2, TriangleAlert, X, Archive,
 } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, arquivoUrl, dinheiro, urlModelo, type ModeloVideo, type No } from './api'
@@ -35,10 +35,14 @@ function Botao({ titulo, onClick, children, className = '', disabled }: {
 
 /** O botão do galho, à direita do nó: recolhe/expande tudo o que saiu dele (mostra +N quando fechado). */
 function Galho({ no }: { no: No }) {
-  const { arv, alternar } = useCanvas()
+  const { arv, alternar, porId, pontos } = useCanvas()
   const n = descendentes(arv, no.id)
   const ocultos = ocultosSob(arv, no)
   if (!n) return null
+  // no modo pontos, quem recolhe é o próprio ponto do pedido: aqui o botão só aparece com o galho todo fechado (para abrir)
+  // ou quando algum filho não é um ponto
+  const fs = arv.filhos.get(no.id) || []
+  if (pontos && !ocultos && fs.every((f) => { const x = porId.get(f); return x && ehPonto(x) })) return null
   return (
     <button type="button" className={`galho nodrag ${ocultos ? 'fechado' : ''}`}
       title={ocultos ? `Mostrar ${ocultos} nós escondidos` : 'Recolher este galho'}
@@ -383,24 +387,25 @@ function PedidoLido({ no }: { no: No }) {
   )
 }
 
-/** O pedido concluído como um ponto na linha entre a imagem de origem e as que saíram dele.
- *  Mouse em cima abre o card por cima do canvas; clicar deixa aberto (outro clique fecha). */
+/** O pedido concluído como um ponto na linha entre a imagem de origem e as que saíram dele. É também o botão do galho:
+ *  clicar recolhe ou mostra o que saiu dele (fechado, mostra quantos estão escondidos); o mouse em cima abre o card do pedido. */
 function PedidoPonto({ data, selected }: NodeProps<NoRF>) {
   const { no } = data
-  const { arv } = useCanvas()
-  const [fixo, setFixo] = useState(false)
+  const { arv, alternar } = useCanvas()
   const [sobre, setSobre] = useState(false)
   const fechar = useRef(0)
   const entra = () => { window.clearTimeout(fechar.current); setSobre(true) }
   const sai = () => { fechar.current = window.setTimeout(() => setSobre(false), 160) }
-  const aberto = fixo || sobre
+  const aberto = sobre
   const video = no.midia === 'video'
+  const ocultos = ocultosSob(arv, no)
   return (
-    <div className={`no pedido-ponto ${video ? 'video' : ''} ${aberto ? 'aberto' : ''} ${selected ? 'sel' : ''}`}
+    <div className={`no pedido-ponto ${video ? 'video' : ''} ${aberto ? 'aberto' : ''} ${ocultos ? 'fechado' : ''} ${selected ? 'sel' : ''}`}
       onMouseEnter={entra} onMouseLeave={sai}>
-      <button type="button" className="ponto nodrag" title={`${no.intencao || no.id}${no.custo != null ? ` · ${dinheiro(no.custo)}` : ''}`} aria-expanded={aberto}
-        onClick={(e) => { e.stopPropagation(); setFixo(!fixo) }} onDoubleClick={(e) => e.stopPropagation()}>
-        {video ? <Clapperboard size={11} /> : <Sparkles size={11} />}
+      <button type="button" className="ponto nodrag" aria-expanded={!ocultos}
+        title={`${ocultos ? `Mostrar ${ocultos} nós escondidos` : 'Recolher o que saiu deste pedido'}${no.custo != null ? ` · ${dinheiro(no.custo)}` : ''}`}
+        onClick={(e) => { e.stopPropagation(); alternar(no.id) }} onDoubleClick={(e) => e.stopPropagation()}>
+        {ocultos ? <span className="ocultos">{ocultos}</span> : video ? <Clapperboard size={11} /> : <Sparkles size={11} />}
       </button>
       {aberto && (
         <div className="pedido-pop" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
@@ -412,7 +417,6 @@ function PedidoPonto({ data, selected }: NodeProps<NoRF>) {
           </div>
         </div>
       )}
-      {ocultosSob(arv, no) > 0 && <Galho no={no} />}
       <Alcas />
     </div>
   )
@@ -468,7 +472,7 @@ function StatusPedido({ no }: { no: No }) {
 
 // ---------- Imagem e referência ----------
 
-/** Os botões pinar (aprovada) e descartar da barra de ações de uma imagem, vídeo ou modelo. */
+/** O botão descartar da barra de ações de uma imagem, vídeo ou modelo (o pinar vem à parte). */
 function BotoesEstado({ no }: { no: No }) {
   const { mudar } = useCanvas()
   const estado = no.estado || 'neutra'
@@ -489,7 +493,7 @@ export const ImagemNode = memo(function ImagemNode({ data, selected }: NodeProps
   const { w, h } = medidaImagem(no)
   const estado = no.estado || 'neutra'
   return (
-    <div className={`no imagem es-${estado} ${selected ? 'sel' : ''}`} style={{ width: w }} onDoubleClick={() => abrir(no.id)}>
+    <div className={`no imagem ${no.asset ? 'asset' : ''} es-${estado} ${selected ? 'sel' : ''}`} style={{ width: w }} onDoubleClick={() => abrir(no.id)}>
       <div className="moldura">
         <div className="quadro" style={{ height: no.gerando || no.erro ? Math.round(w / razaoDe(no.aspecto)) : h }}>
         {no.gerando ? (
@@ -499,7 +503,6 @@ export const ImagemNode = memo(function ImagemNode({ data, selected }: NodeProps
         ) : (
           <><img src={arquivoUrl(slug, no.thumb || no.arquivo)} alt={no.nome || no.id} draggable={false} /><Nitida no={no} w={w} /></>
         )}
-        {estado === 'aprovada' && <span className="marca ok"><Check size={12} strokeWidth={3} /></span>}
         {!no.gerando && (
           <div className="acoes">
             <BotoesEstado no={no} />
@@ -519,10 +522,10 @@ export const ImagemNode = memo(function ImagemNode({ data, selected }: NodeProps
 
 /** A legenda fixa de todo cartão de mídia: o tipo (ícone na cor dele), o código (clique copia), o nome e o custo. */
 const TIPO = {
-  imagem: [ImageIcon, 'Imagem'], referencia: [Link2, 'Referência'], video: [Clapperboard, 'Vídeo'], modelo: [Box, 'Modelo 3D'], site: [Code2, 'HTML'],
+  imagem: [ImageIcon, 'Imagem'], asset: [Layers, 'Asset: gerado durante uma página'], referencia: [Link2, 'Referência'], video: [Clapperboard, 'Vídeo'], modelo: [Box, 'Modelo 3D'], site: [Code2, 'HTML'],
 } as const
 function Legenda({ no, extra, custo }: { no: No; extra?: ReactNode; custo?: number }) {
-  const [I, rotulo] = TIPO[no.tipo as keyof typeof TIPO] || TIPO.imagem
+  const [I, rotulo] = TIPO[(no.asset ? 'asset' : no.tipo) as keyof typeof TIPO] || TIPO.imagem
   const n = no.comentarios?.length || 0
   const nome = no.tipo === 'site' ? null : no.nome || no.titulo
   const final = useCanvas().estado.projeto.final === no.id
@@ -593,9 +596,7 @@ export const VideoNode = memo(function VideoNode({ data, selected }: NodeProps<N
             {tocando && no.arquivo && <video src={arquivoUrl(slug, no.arquivo)} autoPlay muted loop playsInline />}
           </>
         )}
-        <span className={`marca ${estado === 'aprovada' ? 'ok' : 'play'}`}>
-          {estado === 'aprovada' ? <Check size={12} strokeWidth={3} /> : <Play size={10} fill="currentColor" />}
-        </span>
+        <span className="marca play"><Play size={10} fill="currentColor" /></span>
         {!no.gerando && (
           <div className="acoes"><BotoesEstado no={no} /><BotaoFinal id={no.id} /><BotaoAbrir no={no} /></div>
         )}
@@ -620,7 +621,7 @@ export const ModeloNode = memo(function ModeloNode({ data, selected }: NodeProps
       <div className="moldura">
         <div className="quadro" style={{ height: h }}>
         <img src={arquivoUrl(slug, no.thumb || '')} alt={no.nome || no.id} draggable={false} />
-        <span className={`marca ${estado === 'aprovada' ? 'ok' : 'play'}`}>{estado === 'aprovada' ? <Check size={12} strokeWidth={3} /> : <Box size={11} />}</span>
+        <span className="marca play"><Box size={11} /></span>
         <div className="acoes"><BotoesEstado no={no} /><BotaoFinal id={no.id} /><BotaoAbrir no={no} /></div>
         </div>
         <Legenda no={no} />
@@ -653,7 +654,7 @@ export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoR
   const { no } = data
   const { slug, acao } = useCanvas()
   const agora = useAgora()
-  const { img, versao, trabalho: t } = no.site!
+  const { img, versao, trabalho: t, foto } = no.site!
   const { w, h } = medidaImagem(no)
   const pasta = `/projects/${slug}/impl/${img}/${versao}/`
   const url = pasta + 'index.html'
@@ -663,6 +664,12 @@ export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoR
   const aguardando = t?.status === 'aguardando'
   const previa = !pronto && (t?.status === 'trabalhando' || aguardando) && t?.previa ? pasta + t.previa : null
   const abrir = pronto ? url : previa
+  // pronta, o quadro mostra o print (captura.png) e só roda a página viva com o mouse em cima ou selecionada: dezenas de
+  // páginas com WebGL rodando juntas travam o canvas. Sem print ainda (o servidor tira ao fundo), mostra a imagem de origem
+  const [mouse, setMouse] = useState(false)
+  const espera = useRef(0)
+  const viva = !pronto || mouse || selected
+  const poster = foto ? `${pasta}${t?.captura || 'captura.png'}?v=${foto}` : `${pasta}reference.png`
   const parado = t?.status === 'trabalhando' && !!t.atualizado && agora - Date.parse(t.atualizado) > PARADO_MS
   const estado = no.estado || 'neutra'
   const titulo = t ? `${t.agente} · ${t.status}${t.base ? ` · evolução da ${t.base}: ${t.pedido || ''}` : ''}${t.etapa && !pronto ? ` · ${t.etapa}` : ''}${t.nota ? ` · ${t.nota}` : ''}` : 'HTML vivo'
@@ -670,8 +677,17 @@ export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoR
     <div className={`no imagem site es-${estado} ${selected ? 'sel' : ''} ${pronto ? '' : `obra st-${t!.status}`} ${parado ? 'parado' : ''}`}
       style={{ width: w }} title={titulo} onDoubleClick={() => abrir && window.open(abrir, '_blank', 'noreferrer')}>
       <div className="moldura">
-        <div className="quadro" style={{ height: h }}>
-        {(pronto || previa) && <iframe src={abrir!} title={no.id} loading="lazy" tabIndex={-1} />}
+        <div className="quadro" style={{ height: h }}
+          onMouseEnter={() => { espera.current = window.setTimeout(() => setMouse(true), 250) }}
+          onMouseLeave={() => { window.clearTimeout(espera.current); setMouse(false) }}>
+        {pronto && <img className={`foto-pagina ${foto ? '' : 'sem-foto'}`} src={poster} alt="" draggable={false} />}
+        {viva && (pronto || previa) && <iframe src={abrir!} title={no.id} loading="lazy" tabIndex={-1} />}
+        {abrir && (
+          <button type="button" className="abrir-centro nodrag" title={pronto ? 'Abrir a página em outra aba (interativa)' : 'Abrir a prévia em outra aba'}
+            onClick={(e) => { e.stopPropagation(); window.open(abrir, '_blank', 'noreferrer') }}>
+            <ExternalLink size={16} /> Abrir
+          </button>
+        )}
         {!pronto && (
           <div className={`obra-painel ${previa ? 'sobre' : ''}`}>
             <span className="agente-chip grande"><Bot size={14} strokeWidth={1.8} /> {t!.agente}</span>
@@ -685,9 +701,8 @@ export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoR
             <span className="obra-tempo">{parado ? `parado? última notícia ${haQuanto(t!.atualizado, agora)}` : t!.status === 'trabalhando' ? `${Math.round((t!.progresso || 0) * 100)}% · ${haQuanto(t!.atualizado, agora)}` : aguardando ? `aguardando ${haQuanto(t!.atualizado, agora)}` : t!.status}</span>
           </div>
         )}
-        {/* o canto esquerdo: o ✓ (aprovada) e, longe da barra de ações, o botão de abrir a página em outra aba */}
+        {/* o canto esquerdo, longe da barra de ações: abrir a página em outra aba e a pasta */}
         <div className="canto-esq">
-          {estado === 'aprovada' && <span className="marca ok"><Check size={12} strokeWidth={3} /></span>}
           {abrir && <Botao titulo={pronto ? 'Abrir a página em outra aba (interativa)' : 'Abrir a prévia em outra aba'} className="abrir-pagina"
             onClick={() => window.open(abrir, '_blank', 'noreferrer')}><ExternalLink size={14} /></Botao>}
           <Botao titulo="Abrir a pasta no Finder" className="abrir-pagina"
@@ -695,7 +710,7 @@ export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoR
         </div>
         <div className="acoes">
           {t && pronto && ESTADOS.map(({ e, t: rotulo, I }) => (
-            // a aprovação da versão (vale sobretudo para as evoluções: v1.1 aprovada = a alteração foi aceita)
+            // descartar a versão
             <Botao key={e} titulo={rotulo} className={estado === e ? `on ${e}` : ''}
               onClick={() => acao(() => api.mudarImpl(slug, img, versao, alternarEstado(estado, e)))}><I size={14} /></Botao>
           ))}

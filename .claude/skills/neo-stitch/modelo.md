@@ -9,7 +9,7 @@ pin: {x, y} de 0 a 1 ou null, criado}]). `legado: true` = importado (não conta 
 | `brief` | `titulo`, `status` (rascunho → enviado → trabalhando → proposto), `direcoes` [{nome, tese, ativa}] — o texto longo é `brief.md` |
 | `tela` | `titulo`, `pai` (o brief) |
 | `pedido` | `tela`, `entradas` [códigos de imagens/referências/vídeos], `intencao`, `literal`, `quantidade`, `modelo`, `aspecto`, `resolucao`, `status` (rascunho · enviado · trabalhando · concluido · erro), `variacoes` [{nome, tese?, prompt?}], `saidas` [códigos], `custo`, `erro`, `enviado_em`, `iniciado_em`, `concluido_em`, `midia` (imagem · video · 3d); se vídeo: `modelos` [ids], `duracao` (s). Pedidos de assets (`impl.py asset`) têm o vídeo na 1ª entrada; pedidos 3D (`midia: 3d`), a imagem de origem |
-| `imagem` | `pedido`, `nome`, `prompt` (o que gerou), `modelo`, `aspecto`, `resolucao`, `estado` (neutra · favorita · aprovada · descartada), `arquivo` (images/…png), `thumb` (thumbs/…jpg), `largura`, `altura`, `custo`, `segundos`, `gerando` (placeholder), `erro` |
+| `imagem` | `pedido`, `nome`, `prompt` (o que gerou), `modelo`, `aspecto`, `resolucao`, `estado` (neutra · descartada; o `aprovada` dos nós antigos conta como neutra — o que importa é pinado), `arquivo` (images/…png), `thumb` (thumbs/…jpg), `largura`, `altura`, `custo`, `segundos`, `gerando` (placeholder), `erro`, `asset` (true: imagem gerada durante uma página por `impl.py asset` — placa, personagem limpo, textura —, não uma tela; o filtro do app a mostra em "Assets") |
 | `video` | `pedido`, `nome`, `prompt`, `modelo`, `duracao`, `resolucao`, `estado`, `arquivo` (videos/…mp4), `thumb` (capa jpg), `largura`, `altura`, `custo`, `segundos`, `gerando`, `erro`. Pai = o pedido; comentários podem ter `pin.t` (segundo do vídeo) |
 | `referencia` | `titulo`, `tela`, `arquivo` (refs/…), `thumb`, `largura`, `altura`, `origem` |
 | `modelo` | `pedido`, `nome`, `prompt` (para que serve), `origem` (versão e arquivo de onde veio), `estado`, `arquivo` (models/…glb), `thumb` (render no ângulo do quadro), `largura`, `altura`, `giro` (graus para ficar de frente no visualizador), `custo` |
@@ -36,8 +36,8 @@ brief → telas → pedidos → imagens → pedidos → imagens…
 - O pai de um pedido é a **imagem ou o vídeo de onde ele saiu** (1ª entrada que é imagem ou vídeo); sem isso, a 1ª
   referência (que pende da tela); sem entradas, a tela. Entradas extras viram arestas tracejadas (recombinação).
 - Imagens, vídeos e modelos penduram no pedido que os gerou. A cadeia de uma implementação: imagem → pedido de vídeo →
-  vídeo → pedido de assets → imagens (placa, personagem limpo) → pedido 3D → modelos → (página: o nó de HTML).
-- `recolhido: true` em qualquer nó fecha o galho dele; `escondidos: [ids]` esconde só esses filhos (o ⌘A "ir para as aprovadas" usa isso). O app mostra "+N" na pílula.
+  vídeo → pedido de assets → assets (imagens com `asset: true`: placa, personagem limpo) → pedido 3D → modelos → (página: o nó de HTML).
+- `recolhido: true` em qualquer nó fecha o galho dele; `escondidos: [ids]` esconde só esses filhos (o ⌘A "só pinados" usa isso). O app mostra "+N" na pílula.
 - `desloc: {x, y}` = ajuste manual do usuário sobre a posição automática; vale para o nó e todo o galho dele (arrastar um
   nó leva os filhos junto). `null` volta ao lugar automático. Referências soltas (fora da árvore) usam `pos` absoluta;
   o `pos` dos nós da árvore é ignorado.

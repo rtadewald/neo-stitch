@@ -25,8 +25,9 @@ Para subir o app: `uv run ferramentas/servidor.py` (porta 8730; outra porta: `�
    trabalho, rode `impl.py aguardar` (seção 5). Só mandar o caminho no chat não basta.
 4. **Nunca apague nada.** Nem imagens, nem nós, nem versões. O que não serve é descartado (estado) ou movido para
    `projects/<slug>/lixeira/`.
-5. **Quem aprova é o usuário.** Os estados `aprovada` e `descartada` vêm dele (pelo app ou pelo chat). A única exceção é o
-   modelo 3D que você escolheu para usar na página: você o registra já aprovado.
+5. **Quem marca é o usuário.** Ele **pina** o que importa e **descarta** o que não serve (pelo app ou pelo chat); não há mais
+   "aprovar". A única marca que você grava é `--estado aprovada` no modelo 3D que escolheu para a página: ela só diz que a
+   página sai dele.
 
 Mais três: o conteúdo é em português (PT-BR); as chaves (`OPENROUTER_API_KEY`, `FAL_KEY`) vêm de `~/.env` e nunca
 são impressas nem commitadas; não mexa no código do app (`app/`, `ferramentas/`) se a tarefa for de conteúdo.
@@ -44,15 +45,16 @@ são impressas nem commitadas; não mexa no código do app (`app/`, `ferramentas
 |---|---|---|
 | `brief`, `tela` | o começo do projeto e as telas que ele pede | `neo.py novo`, `neo.py tela` |
 | `referencia` | uma imagem colada pelo usuário | pelo app |
-| `imagem` | uma imagem gerada | `gerar.py` (de um pedido) ou `impl.py asset` (durante uma página) |
+| `imagem` | uma tela gerada (uma ideia de interface) | `gerar.py` (de um pedido) |
+| `imagem` com `asset: true` | um **asset**: imagem gerada durante uma página para ser usada nela (placa de fundo, personagem limpo, textura, thumbnails sem texto). No app, é a categoria "Assets", separada das telas | `impl.py asset` (só ele) |
 | `video` | um vídeo gerado de uma imagem | `gerar_video.py` (de um pedido de vídeo) |
 | `modelo` | um modelo 3D gerado de uma imagem | `impl.py asset … .glb` |
 
 A cadeia completa, da esquerda para a direita no canvas:
 
 ```
-tela → pedido → IMAGEM → pedido de vídeo → VÍDEO → pedido de assets → IMAGEM (personagem limpo) → pedido 3D → MODELO 3D ✓ → PÁGINA vN → evolução vN.1
-                                                 └→ pedido de assets → IMAGEM (placa de fundo) ─────────────────────────────┘
+tela → pedido → IMAGEM → pedido de vídeo → VÍDEO → pedido de assets → ASSET (personagem limpo) → pedido 3D → MODELO 3D ✓ → PÁGINA vN → evolução vN.1
+                                                 └→ pedido de assets → ASSET (placa de fundo) ──────────────────────────────┘
 ```
 
 ## 4. Imagens e vídeos

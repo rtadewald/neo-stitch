@@ -72,7 +72,7 @@ O pedido nasce no canvas e mantém a linhagem. Projeto novo pelo chat: `neo.py n
 
 ## 5. Outras ações
 
-- Marcar: `neo.py estado JAR-042 JAR-051 aprovada|favorita|descartada|neutra`. Use quando o usuário aprovar pelo chat.
+- Marcar: `neo.py estado JAR-042 JAR-051 descartada|neutra`, quando o usuário descartar pelo chat. O que importa ele pina no app (não há mais "aprovar").
 - Responder um comentário: `neo.py comentar JAR-042 "…" [--pin x,y]`. Aparece como pin escuro (do Claude) no visualizador.
 - Ver o projeto inteiro: `neo.py ver <slug>`, uma árvore compacta com estados e comentários.
 - Brief: `neo.py brief <slug>` lê; `--arquivo novo.md` troca.

@@ -65,16 +65,18 @@ uv run ferramentas/impl.py vivo JAR-043/v4      # só o sinal de vida, sem mudar
 ## 4. Registre tudo o que gerar
 
 Toda imagem e todo modelo 3D gerado no trabalho vira um cartão no canvas. Registre **assim que o arquivo existir**,
-mesmo os que você não vai usar.
+mesmo os que você não vai usar. A imagem registrada por `impl.py asset` é um **asset** (`asset: true`): no app ela
+fica na categoria "Assets", separada das telas geradas. Por isso, nunca registre um asset com `gerar.py` ou
+`neo.py`: ele cairia entre as telas.
 
-**Uma imagem** (placa de fundo sem os elementos vivos, personagem isolado para o 3D, textura). Ela sai do vídeo:
+**Um asset** (placa de fundo sem os elementos vivos, personagem isolado para o 3D, textura): uma imagem marcada como asset. Ele sai do vídeo:
 
 ```bash
 uv run ferramentas/impl.py asset JAR-043/v4 assets/fundo.png --nome "placa de fundo" \
   --nota "o fundo sem os elementos vivos" --custo 0.02 --usa
 ```
 
-`--usa` diz que a página usa essa imagem: ela entra nas `entradas` da página, e o app as liga com uma linha.
+`--usa` diz que a página usa esse asset: ele entra nas `entradas` da página, e o app as liga com uma linha.
 
 **Um modelo 3D**. Ele sai da imagem que o gerou (`--de`). Registre **todos** os modelos gerados, cada um com um render
 no ângulo do quadro como capa, e marque o escolhido como aprovado:
@@ -175,7 +177,8 @@ Quem a escreve é o `impl.py`. Escreva à mão só se não puder rodar `uv`: gra
 | `custo` | US$ gastos em APIs nesta versão, o total até agora |
 | `previa` | a página que o cartão roda enquanto a versão não está pronta (relativa à pasta) |
 | `paradas` | cada vez que o trabalho parou para aprovação (`impl.py aguardar`) |
-| `entradas` | o que a página usa: o modelo 3D aprovado primeiro, depois as imagens com `--usa`. Sem `entradas`, a página pende do vídeo |
+| `entradas` | o que a página usa: o modelo 3D aprovado primeiro, depois os assets com `--usa`. Sem `entradas`, a página pende do vídeo |
+| `captura` | o print da página (padrão `captura.png`, que o servidor tira e refaz sozinho); só preencha para usar outro arquivo |
 | `base`, `pedido` | só nas evoluções: a versão de origem e a alteração pedida |
 | `estado`, `desloc` | só o app escreve: a aprovação do usuário e a posição do cartão arrastado |
 
@@ -183,7 +186,8 @@ Quem a escreve é o `impl.py`. Escreva à mão só se não puder rodar `uv`: gra
 
 - **trabalhando:** o cartão mostra o seu nome, a etapa e a barra de progresso; sem notícia há 15 min, "parado?".
 - **aguardando:** o cartão roda a página da `previa`, com borda âmbar e o selo "aguardando você".
-- **pronto:** o cartão roda o `index.html`; dois cliques abrem a página interativa; ✓ e ✕ aprovam ou descartam.
+- **pronto:** o cartão mostra um print da página e roda o `index.html` com o mouse em cima; dois cliques abrem a página
+  interativa; ✓ e ✕ aprovam ou descartam. O print (`captura.png`) quem tira é o servidor, sozinho: não precisa fazer.
 - **evolução:** pende da versão de origem por uma linha tracejada (v1 → v1.1 → v1.2).
 - **erro / abandonado:** o cartão fica apagado, com o motivo.
 
