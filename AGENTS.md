@@ -6,7 +6,7 @@ Leia este arquivo inteiro antes de mexer em qualquer coisa. Ele é curto de prop
 
 O Neo Stitch é um canvas local para criar interfaces em três passos: **imagem → vídeo → HTML vivo**. O usuário vê tudo
 no app (http://localhost:8730) como uma árvore de cartões. Cada cartão saiu de outro, e é essa linhagem que o app
-desenha.
+desenha. De páginas prontas pode sair um **design system** (seção 6).
 
 - `ferramentas/`: os comandos em Python (rode sempre com `uv run`, na raiz do repositório).
 - `app/`: o app (React). Ao iniciar, o servidor o recompila se o código mudou (ex.: depois de um `git pull`).
@@ -19,7 +19,7 @@ Para subir o app: `uv run ferramentas/servidor.py` (porta 8730; outra porta: `�
 1. **Tudo passa pelos comandos.** Nenhum arquivo em `projects/<slug>/nodes/` é escrito à mão. Os comandos travam o
    projeto (o app escreve ao mesmo tempo), dão os códigos e mantêm a linhagem. Se algo não aparece no app, é porque
    não passou por um comando.
-2. **Tudo o que você gera vira um cartão, com o custo.** Imagem, vídeo, modelo 3D, página: cada um entra no canvas pelo
+2. **Tudo o que você gera vira um cartão, com o custo.** Imagem, vídeo, modelo 3D, página, design system: cada um entra no canvas pelo
    seu comando, com `--custo` em US$ (`0` se nada foi pago). O custo aparece na legenda do cartão.
 3. **Toda parada para aprovação aparece no app.** Quando você precisa que o usuário olhe e aprove algo no meio do
    trabalho, rode `impl.py aguardar` (seção 5). Só mandar o caminho no chat não basta.
@@ -29,7 +29,7 @@ Para subir o app: `uv run ferramentas/servidor.py` (porta 8730; outra porta: `�
    "aprovar". A única marca que você grava é `--estado aprovada` no modelo 3D que escolheu para a página: ela só diz que a
    página sai dele.
 
-Mais três: o conteúdo é em português (PT-BR); as chaves (`OPENROUTER_API_KEY`, `FAL_KEY`) vêm de `~/.env` e nunca
+Mais três: o conteúdo é em português (PT-BR); as chaves (`OPENROUTER_API_KEY`, `FAL_KEY`) vêm do `.env` daqui ou de `~/.env` (o usuário as define em **Config**, no app) e nunca
 são impressas nem commitadas; não mexa no código do app (`app/`, `ferramentas/`) se a tarefa for de conteúdo.
 
 ## 3. O modelo
@@ -49,12 +49,14 @@ são impressas nem commitadas; não mexa no código do app (`app/`, `ferramentas
 | `imagem` com `asset: true` | um **asset**: imagem gerada durante uma página para ser usada nela (placa de fundo, personagem limpo, textura, thumbnails sem texto). No app, é a categoria "Assets", separada das telas | `impl.py asset` (só ele) |
 | `video` | um vídeo gerado de uma imagem | `gerar_video.py` (de um pedido de vídeo) |
 | `modelo` | um modelo 3D gerado de uma imagem | `impl.py asset … .glb` |
+| `ds` | um **design system**: catálogo extraído de páginas prontas, em `ds/<código>/`. No app, é a categoria "Design Systems", destacada como a referência | `neo.py ds` |
 
 A cadeia completa, da esquerda para a direita no canvas:
 
 ```
 tela → pedido → IMAGEM → pedido de vídeo → VÍDEO → pedido de assets → ASSET (personagem limpo) → pedido 3D → MODELO 3D ✓ → PÁGINA vN → evolução vN.1
                                                  └→ pedido de assets → ASSET (placa de fundo) ──────────────────────────────┘
+PÁGINA vN → pedido → DESIGN SYSTEM   (as outras páginas do catálogo ligam por uma linha tracejada)
 ```
 
 ## 4. Imagens e vídeos
@@ -95,11 +97,24 @@ uv run ferramentas/impl.py pronto JAR-095/v6 --nota "o que a página faz" --cust
 - Para alterar uma página que já existe, não mexa nela: `impl.py evoluir JAR-095/v6 --agente "…" --pedido "…"` cria a
   `v6.1`.
 
-## 6. Onde ler mais
+## 6. Design systems: páginas prontas viram um catálogo
+
+Um design system é uma pasta com um `design-system.html` (Overview e Components) tirada de uma ou mais páginas. Monte a
+pasta fora de `impl/`, sem mexer nas páginas, e registre com um comando só:
+
+```bash
+uv run ferramentas/neo.py ds jarvis-conteudo <pasta> --nome "Robô azul" --de JCO-193/v1,JCO-194/v1 --capa capa.png --custo 0
+```
+
+O comando copia a pasta para `projects/<slug>/ds/<código>/` e cria o pedido e o cartão, que no app fica na categoria
+"Design Systems". O passo a passo está em [docs/AGENTES.md](docs/AGENTES.md), seção 11.
+
+## 7. Onde ler mais
 
 | Para | Leia |
 |---|---|
 | implementar um vídeo como HTML | [docs/AGENTES.md](docs/AGENTES.md) |
+| registrar um design system | [docs/AGENTES.md](docs/AGENTES.md), seção 11 |
 | operar o canvas (fila, prompts, geração) | skill `neo-stitch` (`.claude/skills/neo-stitch/SKILL.md`) |
 | o contrato de cada tipo de nó | [.claude/skills/neo-stitch/modelo.md](.claude/skills/neo-stitch/modelo.md) |
 | usar o app (atalhos, vistas, visualizador) | [docs/USO.md](docs/USO.md) |

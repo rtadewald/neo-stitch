@@ -13,9 +13,10 @@ Rotas (JSON; erro volta como {"erro": "…"}):
 - PATCH /api/projetos/<slug>/impl/<IMG>/<vN[.M]> {estado?, desloc?}   aprova/descarta uma versão de HTML ou move o card dela (impl.json)
 - POST /api/projetos/<slug>/impl/<IMG>/<vN[.M]>/pasta   abre a pasta da versão no Finder
 - POST /api/projetos {nome, tipo, descricao}           cria (Brief + primeira Tela)
-- GET  /api/projetos/<slug>?rev=…                      {rev, projeto, nos, custos, brief, diario, modelos, modelos_video,
+- GET  /api/projetos/<slug>?rev=…                      {rev, projeto, nos, custos, brief, modelos, modelos_video,
                                                         avancos, …} ou {rev, igual: true} quando nada mudou
-- PATCH /api/projetos/<slug> {nome?, padroes?, tetos?, layout?: pilha|grade|grade3|grade4|grade5, compacto?: bool, final?: código | null}
+- GET /api/config · PUT /api/config/chaves {nome, valor}: as chaves de API (o valor nunca volta; valor vazio tira do .env)
+- PATCH /api/projetos/<slug> {nome?, padroes?, tetos?, layout?: grade|grade3|grade4|grade5|grade6|grade8, compacto?: bool, final?: código | null}
                                                        final: a versão final (vira a capa; o projeto vai para Concluídos)
 - POST /api/projetos/<slug>/vistas {acao: abrir|pinar|despinar, id}   o histórico (10) e os pinados da barra lateral
 - PUT  /api/projetos/<slug>/brief {texto}
@@ -37,6 +38,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from typing import Callable
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -60,6 +62,7 @@ CAMPOS_APP = {
     'imagem': _TODO_NO | {'estado'},
     'referencia': _TODO_NO | {'titulo'},
     'video': _TODO_NO | {'estado'},
+    'ds': _TODO_NO | {'estado'},
 }
 MIDIA = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp4', '.webm', '.bin', '.glb'}
 mimetypes.add_type('model/gltf-binary', '.glb')
@@ -177,7 +180,6 @@ def estado(h, m, corpo):
     pedir_fotos(slug, av)
     return {'rev': r, 'projeto': B.ler_projeto(slug), 'nos': lista, 'custos': B.custos(slug, lista),
             'brief': (d / 'brief.md').read_text(encoding='utf-8') if (d / 'brief.md').exists() else '',
-            'diario': (d / 'diario.md').read_text(encoding='utf-8') if (d / 'diario.md').exists() else '',
             'modelos': B.MODELOS, 'aspectos': B.ASPECTOS, 'ouvinte': B.ouvinte_vivo(), 'modelos_video': B.modelos_video(),
             'avancos': av, 'vistas': B.vistas_de(slug, lista)}
 
@@ -191,6 +193,27 @@ def vistas(h, m, corpo):
         return B.vista(slug, corpo.get('acao') or '', cod)
     except ValueError as e:
         raise Erro(str(e)) from e
+
+
+def so_do_app(h) -> None:
+    """As chaves só mudam pelo próprio app: recusa um site qualquer aberto no navegador falando com este servidor local."""
+    locais = ('localhost', '127.0.0.1')
+    origem = h.headers.get('Origin')
+    if (h.headers.get('Host') or '').rsplit(':', 1)[0] not in locais or (origem and urlparse(origem).hostname not in locais):
+        raise Erro('Só pelo app local.', 403)
+
+
+@rota('GET', '/api/config')
+def ler_config(h, m, corpo):
+    so_do_app(h)
+    return {'chaves': B.chaves()}
+
+
+@rota('PUT', '/api/config/chaves')
+def mudar_chave(h, m, corpo):
+    so_do_app(h)
+    B.gravar_chave(str(corpo.get('nome') or ''), str(corpo.get('valor') or ''))
+    return {'chaves': B.chaves()}
 
 
 @rota('PATCH', f'/api/projetos/{SLUG}')
@@ -604,6 +627,17 @@ def pedir_fotos(slug: str, av: dict) -> None:
             FOTOS.put((slug, img, v))
 
 
+def varredor() -> None:
+    """De minuto em minuto olha todos os projetos: uma página que um agente terminou ganha o print mesmo com o app em outro projeto."""
+    while True:
+        for slug in B.projetos():
+            try:
+                pedir_fotos(slug, B.avancos(slug))
+            except (OSError, ValueError, KeyError):
+                pass
+        time.sleep(60)
+
+
 def fotografo() -> None:
     while True:
         slug, img, v = FOTOS.get()
@@ -625,6 +659,7 @@ def main() -> None:
     B.PROJETOS.mkdir(exist_ok=True)
     garantir_build()
     threading.Thread(target=fotografo, daemon=True).start()
+    threading.Thread(target=varredor, daemon=True).start()
     srv = Servidor(('127.0.0.1', porta), Handler)
     print(f'Neo Stitch em http://localhost:{porta}/', flush=True)
     try:

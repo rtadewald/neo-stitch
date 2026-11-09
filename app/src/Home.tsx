@@ -1,6 +1,7 @@
-import { AppWindow, ArrowUp, Flag, Globe, LayoutDashboard, Pin, Plus, Smartphone, X } from 'lucide-react'
+import { AppWindow, ArrowUp, Flag, Globe, LayoutDashboard, Pin, Plus, Settings, Smartphone, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, dinheiro, rotaVista, type ResumoProjeto } from './api'
+import { Config } from './Config'
 
 const TIPOS = [
   { v: 'site', r: 'Site', I: Globe },
@@ -12,6 +13,7 @@ const TIPOS = [
 export function Home() {
   const [lista, setLista] = useState<ResumoProjeto[] | null>(null)
   const [novo, setNovo] = useState(false)
+  const [config, setConfig] = useState(false)
 
   useEffect(() => {
     api.projetos().then(setLista).catch(() => setLista([]))
@@ -58,7 +60,12 @@ export function Home() {
       <header className="home-topo">
         <img src="/favicon.svg" alt="" width={28} height={28} />
         <h1>Neo Stitch</h1>
+        <span className="cresce" />
+        <button type="button" className="ico rot" title="Chaves de API" onClick={(e) => { e.stopPropagation(); setConfig(true) }}>
+          <Settings size={16} /><span>Config</span>
+        </button>
       </header>
+      {config && <Config fechar={() => setConfig(false)} />}
       <h2 className="home-secao">Projetos</h2>
       <section className="grade">
         <button type="button" className="cartao novo" onClick={(e) => { e.stopPropagation(); setNovo(true) }} title="Novo projeto">

@@ -4,12 +4,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
-  ArrowUp, BookOpen, Bot, CircleDot, Clapperboard, Pin, PinOff, ChevronLeft, ChevronRight, ClipboardPaste, Copy, EyeOff, FileText, GitBranchPlus, ImagePlus,
-  Focus, LayoutGrid, ListFilter, CornerLeftUp, Layers, Box, Image as ImageIcon, MessageSquareText, PanelsTopLeft, AlignVerticalDistributeCenter, Maximize, Maximize2, Monitor, Trash2, UnfoldHorizontal, X,
+  ArrowUp, Bot, CircleDot, Clapperboard, Pin, PinOff, ChevronLeft, ChevronRight, ClipboardPaste, Copy, EyeOff, FileText, GitBranchPlus, ImagePlus,
+  Focus, LayoutGrid, Settings, ListFilter, CornerLeftUp, Layers, Palette, Box, Image as ImageIcon, MessageSquareText, PanelsTopLeft, AlignVerticalDistributeCenter, Maximize, Maximize2, Monitor, Trash2, UnfoldHorizontal, X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, arquivoUrl, dinheiro, rotaVista, type Estado, type No } from './api'
 import { CanvasCtx, type Ctx } from './ctx'
+import { Config } from './Config'
 import { arestas, arvore, filtrarArvore, caminhoAprovadas, descendentes, ehPonto, PONTO, galhoCompleto, layoutArvore, medida, nosDeSite, ocultosSob, recorte, type ModoLayout } from './layout'
 import { Menu, type ItemMenu } from './Menu'
 import { nodeTypes, type NoRF } from './nodes'
@@ -35,7 +36,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
   const [nodes, setNodes] = useState<NoRF[]>([])
   const [selecao, setSelecao] = useState<string[]>([])
   const [visto, setVisto] = useState<string | null>(null)
-  const [aba, setAba] = useState<'brief' | 'diario' | null>(null)
+  const [briefAberto, setBriefAberto] = useState(false)
   // o filtro do topo: o que está desmarcado (tipos e marcações); vazio = tudo aparece. Fica salvo por projeto, neste navegador
   const [fora, setFora] = useState<Set<string>>(() => {
     try {
@@ -51,6 +52,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
   const [selecionando, setSelecionando] = useState(false)
   const [confirmar, setConfirmar] = useState<string[] | null>(null)
   const [spec, setSpec] = useState(false)
+  const [config, setConfig] = useState(false)
   const [organizar, setOrganizar] = useState(false)
   const enquadrarDepois = useRef(false)
   const [caixa, setCaixa] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
@@ -61,6 +63,11 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
   const arquivo = useRef<HTMLInputElement>(null)
   const ondeSubir = useRef<{ x: number; y: number } | undefined>(undefined)
   const arrastando = useRef(new Set<string>())
+  // o cartão solto guarda a posição até a nova voltar do estado (600 ms); ao soltar essa guarda, redesenha com a posição certa
+  // (um ⌘Z nesse meio-tempo deixaria o cartão parado onde foi solto, com o dado já desfeito)
+  const [soltou, setSoltou] = useState(0)
+  const guarda = useRef(0)
+  const soltarGuarda = useCallback(() => { window.clearTimeout(guarda.current); arrastando.current.clear(); setSoltou((n) => n + 1) }, [])
   const [medidas, setMedidas] = useState(() => new Map<string, { w: number; h: number }>())
 
   // acima de 100% de zoom, os controles dos cartões (ações, rodapé, marcas) ficam do tamanho da tela: --inv = 1/zoom.
@@ -109,7 +116,9 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
   const arv = useMemo(() => (recortado ? arvore(nos) : arvTodos), [recortado, nos, arvTodos])
   const videosRecorte = useMemo(() => (recortado ? nos.filter((n) => n.tipo === 'video' && n.arquivo) : []), [recortado, nos])
   const [modoLocal, setModoLocal] = useState<ModoLayout | null>(null)
-  const modo: ModoLayout = modoLocal || estado?.projeto.layout || 'pilha'
+  // o antigo "pilha" (Empilhado) abre no modo por nível
+  const modoSalvo = estado?.projeto.layout
+  const modo: ModoLayout = modoLocal || (modoSalvo && (modoSalvo as string) !== 'pilha' ? modoSalvo : 'grade')
   const trocarModo = useCallback(async (v: ModoLayout) => {
     setModoLocal(v)
     await acao(() => api.mudarProjeto(slug, { layout: v }))
@@ -120,7 +129,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
 
   // apagar sempre pergunta antes; leva o galho inteiro (o ⌘Z traz de volta)
   const apagar = useCallback(async (ids: string | string[]) => {
-    const lista = (Array.isArray(ids) ? ids : [ids]).filter((id) => porId.get(id) && porId.get(id)!.tipo !== 'brief' && porId.get(id)!.tipo !== 'site')
+    const lista = (Array.isArray(ids) ? ids : [ids]).filter((id) => porId.get(id) && porId.get(id)!.tipo !== 'brief' && porId.get(id)!.tipo !== 'site' && porId.get(id)!.tipo !== 'ds')
     const set = new Set(lista)
     const raizes = lista.filter((id) => {
       for (let p = arv.pai.get(id); p; p = arv.pai.get(p)) if (set.has(p)) return false
@@ -152,7 +161,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
     // perto acima dela (e as referências desse pedido)
     const origens = new Set<string>()
     if (!fora.has('origem') && fora.has('pedido')) for (const n of nos) {
-      if (!temMarca(n) || !tipoOk(n)) continue
+      if (!temMarca(n) || !tipoOk(n) || n.tipo === 'ds') continue   // o pedido de um design system só o liga às páginas
       let p = arv.pai.get(n.id)
       while (p && porId.get(p)?.tipo !== 'pedido') p = arv.pai.get(p)
       if (!p || origens.has(p)) continue
@@ -243,7 +252,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
           draggable: filtrando || no.tipo !== 'site' || !!no.site?.trabalho }
       })
     })
-  }, [visiveis, posicoesFinais, filtrando])
+  }, [visiveis, posicoesFinais, filtrando, soltou])
 
   // pedido criado pelo botão direito: nasce no ponto clicado (um deslocamento sobre o lugar automático dele)
   useEffect(() => {
@@ -324,7 +333,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
         return d ? { ...n, position: { x: n.position.x + d.x, y: n.position.y + d.y } } : n
       }) : out
     })
-    for (const c of changes) if (c.type === 'position' && c.dragging) arrastando.current.add(c.id)
+    for (const c of changes) if (c.type === 'position' && c.dragging) { window.clearTimeout(guarda.current); arrastando.current.add(c.id) }
     // o tamanho real de cada nó alimenta o arranjo da árvore (textos longos, imagens retrato…)
     const dims = changes.filter((c) => c.type === 'dimensions' && c.dimensions)
     if (dims.length) {
@@ -359,7 +368,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
         })
         passo({ desfazer: async () => aplicar(antes), refazer: async () => aplicar(novo) })
         aplicar(novo)
-        window.setTimeout(() => arrastando.current.clear(), 600)
+        guarda.current = window.setTimeout(soltarGuarda, 600)
         return
       }
       emLote(() => {
@@ -385,9 +394,9 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       if (Object.keys(mapa).length) posicoes(mapa)
       })
       // solta o "arrastando" depois que a posição nova já voltou do estado
-      window.setTimeout(() => arrastando.current.clear(), 600)
+      guarda.current = window.setTimeout(soltarGuarda, 600)
     },
-    [posicoes, arv, posicoesFinais, porId, mudar, emLote, galhoVisivel, rf, filtrando, posFiltro, passo],
+    [posicoes, arv, posicoesFinais, porId, mudar, emLote, galhoVisivel, rf, filtrando, posFiltro, passo, soltarGuarda],
   )
 
   const onConnect = useCallback(
@@ -545,6 +554,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
       const refaz = (k === 'z' && e.shiftKey) || k === 'y'
       if (k !== 'z' && k !== 'y') return
       e.preventDefault()
+      soltarGuarda()
       const ok = await (refaz ? historico.refazer() : historico.desfazer())
       setAviso(ok ? (refaz ? 'Refeito' : 'Desfeito') : refaz ? 'Nada para refazer' : 'Nada para desfazer')
     }
@@ -755,9 +765,13 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
     // uma página com print (captura) pode ser a origem de um pedido de imagens, como uma imagem
     const daPagina: ItemMenu[] = no.tipo === 'site' && no.arquivo
       ? [{ rotulo: 'Novo pedido a partir desta', icone: <GitBranchPlus size={15} />, atalho: 'N', acao: () => novoPedido([no.id]) }] : []
+    if (no.tipo === 'ds') return [
+      { rotulo: 'Abrir o design system', icone: <Maximize2 size={15} />, acao: () => { if (no.pagina) window.open(arquivoUrl(slug, no.pagina), '_blank', 'noreferrer') } },
+      ...abrirDaqui, pinItem, 'sep', ...galho, codigo,
+    ]
     if (no.tipo === 'video' || no.tipo === 'modelo' || no.tipo === 'site') return [...daPagina, ...abrirDaqui, pinItem, 'sep', ...galho, codigo]
     return [
-      { rotulo: 'Editar brief', icone: <FileText size={15} />, acao: () => setAba('brief') },
+      { rotulo: 'Editar brief', icone: <FileText size={15} />, acao: () => setBriefAberto(true) },
       { rotulo: 'Nova tela', icone: <Monitor size={15} />, acao: novaTela },
       ...galho, codigo,
     ]
@@ -769,7 +783,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
 
   const ctx: Ctx | null = useMemo(
     () => estado && {
-      slug, estado, porId, arv, alternar, mudar, apagar: (id: string) => apagar(id), acao, abrir: setVisto, painel: setAba, novoPedido, pedidoVideo,
+      slug, estado, porId, arv, alternar, mudar, apagar: (id: string) => apagar(id), acao, abrir: setVisto, painel: () => setBriefAberto(true), novoPedido, pedidoVideo,
       novaTela, enviar, copiar, focar, limparFoco: () => setFocar(null), pontos, raiz, abrirVista, mudarVista,
     },
     [slug, estado, porId, arv, alternar, mudar, apagar, acao, novoPedido, pedidoVideo, novaTela, enviar, copiar, focar, pontos, raiz, abrirVista, mudarVista],
@@ -865,7 +879,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
             {organizar && (
               <div className="pop-organizar" onPointerLeave={() => setOrganizar(false)}>
                 <div className="modos">
-                  {([['pilha', 'Empilhado'], ['grade', 'Árvore em grade'], ['grade3', 'Grade 3×3'], ['grade4', 'Grade 4×4'], ['grade5', 'Grade 5×5']] as const).map(([v, r]) => (
+                  {([['grade', 'Por nível'], ['grade3', 'Grade 3×3'], ['grade4', 'Grade 4×4'], ['grade5', 'Grade 5×5'], ['grade6', 'Grade 6×6'], ['grade8', 'Grade 8×8']] as const).map(([v, r]) => (
                     <button key={v} type="button" className={`modo ${modo === v ? 'on' : ''}`} onClick={() => trocarModo(v)}>
                       <PreviaModo modo={v} />
                       <span>{r}</span>
@@ -874,14 +888,14 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
                 </div>
                 <span className="menu-sep" />
                 <button type="button" className="acao-pop" onClick={() => { distribuir(); setOrganizar(false) }}>
-                  <AlignVerticalDistributeCenter size={15} /> Otimizar espaço <span className="mudo">{compacto && deslocados.length ? `fecha os vãos · ${deslocados.length} ajustes` : 'fecha os vãos'}</span>
+                  <AlignVerticalDistributeCenter size={15} /> Otimizar espaço <span className="mudo">{compacto && deslocados.length ? `fecha os vãos · ${deslocados.length} ${deslocados.length === 1 ? 'ajuste' : 'ajustes'}` : 'fecha os vãos'}</span>
                 </button>
                 <button type="button" className="acao-pop" onClick={() => { irParaAprovados(); setOrganizar(false) }}>
                   <Pin size={15} /> Só pinados <kbd>⌘A</kbd>
                 </button>
                 <button type="button" className="acao-pop" disabled={!deslocados.length}
                   onClick={() => emLote(() => deslocados.forEach((n) => mudar(n.id, { desloc: null })))}>
-                  <LayoutGrid size={15} /> Realinhar <span className="mudo">{deslocados.length ? `${deslocados.length} ajustes manuais` : 'nada fora do lugar'}</span>
+                  <LayoutGrid size={15} /> Realinhar <span className="mudo">{deslocados.length ? `${deslocados.length} ${deslocados.length === 1 ? 'ajuste manual' : 'ajustes manuais'}` : 'nada fora do lugar'}</span>
                 </button>
                 <span className="menu-sep" />
                 <div className="niveis">
@@ -905,10 +919,11 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
               <Bot size={16} /><span>Agentes</span>
             </button>
           )}
-          <button type="button" className={`ico rot ${aba ? 'on' : ''}`} title="Brief e diário" onClick={() => setAba(aba ? null : 'diario')}>
-            <BookOpen size={16} /><span>Diário</span>
+          <button type="button" className="ico rot" title="Chaves de API" onClick={() => setConfig(true)}>
+            <Settings size={16} /><span>Config</span>
           </button>
         </header>
+        {config && <Config fechar={() => setConfig(false)} />}
         {spec && videosRecorte.length > 0 && (
           <SpecAgentes videos={videosRecorte.map((n) => ({ id: n.id, nome: n.nome || n.modelo || '' }))}
             fechar={() => setSpec(false)} copiar={(t, msg) => { navigator.clipboard?.writeText(t); setAviso(msg || `${t} copiado`) }} />
@@ -948,7 +963,7 @@ function CanvasInterno({ slug, raiz }: { slug: string; raiz?: string }) {
         {aviso && <div className="toast">{aviso}</div>}
 
         {visto && porId.get(visto) && <Viewer id={visto} fechar={() => setVisto(null)} navegar={setVisto} />}
-        {aba && <Painel aba={aba} setAba={setAba} />}
+        {briefAberto && <Painel fechar={() => setBriefAberto(false)} />}
         {(selecionando || caixa) && !visto && !menu && (
           // ⌘ pressionado: arrastar desenha a caixa de seleção (mesmo começando em cima de um nó); clicar põe/tira o nó;
           // ⌘ + scroll dá zoom em volta do cursor (a capa fica por cima do canvas, então o scroll passa por ela)
@@ -1033,6 +1048,7 @@ function corMinimapa(n: { data: unknown }) {
   if (no.tipo === 'imagem') return no.estado === 'descartada' ? '#e3e5e9' : '#b9bec7'
   if (no.tipo === 'video') return '#7a6cf0'
   if (no.tipo === 'site') return '#0d9488'
+  if (no.tipo === 'ds') return '#db2777'
   if (no.tipo === 'pedido') return '#3d5afe'
   if (no.tipo === 'referencia') return '#d0d4da'
   return '#111318'
@@ -1059,18 +1075,15 @@ function PreviaModo({ modo }: { modo: ModoLayout }) {
   return (
     <svg viewBox="0 0 96 60" className="previa" aria-hidden>
       <g className="linhas">
-        {modo === 'pilha'
-          ? [6, 18, 30, 42].map((y) => <path key={y} d={`M26 30 C34 30 34 ${y + 4} 42 ${y + 4}`} />)
-          : [8, 26, 44].map((y) => <path key={y} d={`M26 30 C34 30 34 ${y + 4} 42 ${y + 4}`} />)}
+        {(modo === 'grade' ? [12, 26, 40] : [8, 26, 44]).map((y) => <path key={y} d={`M26 30 C34 30 34 ${y + 4} ${modo === 'grade' ? 38 : 42} ${y + 4}`} />)}
       </g>
       <rect className="pai" x={6} y={25} width={20} height={10} rx={2} />
-      {modo === 'pilha'
-        ? [6, 18, 30, 42].map((y) => <g key={y}>{r(42, y)}</g>)
-        : modo === 'grade'
-          ? [[42, 8], [42, 26], [42, 44], [62, 8], [62, 26]].map(([x, y]) => <g key={`${x}${y}`}>{r(x, y)}</g>)
-          // N×N: blocos (galho = nó + filhos) em colunas de N
-          : (() => {
-              const n = modo === 'grade5' ? 5 : modo === 'grade4' ? 4 : 3
+      {modo === 'grade'
+        // por nível: cada nível numa coluna só
+        ? [[38, 12], [38, 26], [38, 40], ...[3, 12, 21, 30, 39, 48].map((y) => [66, y])].map(([x, y]) => <g key={`${x}-${y}`}>{r(x, y, 20, 7)}</g>)
+        // N×N: blocos (galho = nó + filhos) em colunas de N
+        : (() => {
+              const n = Number(modo.slice(5))
               const passo = 50 / n
               const blocos = []
               for (let c = 0; c < 2; c++) for (let i = 0; i < (c ? n - 1 : n); i++) blocos.push([38 + c * 30, 5 + i * passo])
@@ -1091,7 +1104,7 @@ function PreviaNivel({ n }: { n: number }) {
 
 // ---------- o filtro do topo ----------
 const TIPOS = [
-  ['imagem', 'Imagens', ImageIcon], ['video', 'Vídeos', Clapperboard], ['site', 'Páginas HTML', Monitor], ['modelo', 'Modelos 3D', Box], ['asset', 'Assets', Layers],
+  ['imagem', 'Imagens', ImageIcon], ['video', 'Vídeos', Clapperboard], ['site', 'Páginas HTML', Monitor], ['modelo', 'Modelos 3D', Box], ['asset', 'Assets', Layers], ['ds', 'Design Systems', Palette],
   ['pedido', 'Pedidos', MessageSquareText], ['tela', 'Telas', PanelsTopLeft],
 ] as const
 const MARCAS = [['pinado', 'Pinados', Pin], ['neutra', 'Sem marca', null], ['descartada', 'Descartados', X]] as const
@@ -1100,7 +1113,7 @@ const marcasDe = (n: No, pinados: Set<string>) => [n.estado === 'descartada' ? '
 /** No filtro, a referência conta como pedido (é o que o usuário mandou: texto + imagens). */
 const tipoFiltro = (n: No) => (n.tipo === 'referencia' ? 'pedido' : n.asset ? 'asset' : n.tipo)
 /** Os nós que o usuário aprova ou descarta (os outros — pedidos, referências, telas — não têm marcação). */
-const temMarca = (n: No) => n.tipo === 'imagem' || n.tipo === 'video' || n.tipo === 'modelo' || n.tipo === 'site'
+const temMarca = (n: No) => n.tipo === 'imagem' || n.tipo === 'video' || n.tipo === 'modelo' || n.tipo === 'site' || n.tipo === 'ds'
 
 function Filtro({ nos, pinados, fora, trocar, fechar, pontos, trocarPontos }: {
   nos: No[]; pinados: Set<string>; fora: Set<string>; trocar: (s: Set<string>) => void; fechar: () => void
@@ -1149,7 +1162,7 @@ function Filtro({ nos, pinados, fora, trocar, fechar, pontos, trocarPontos }: {
         <span>pedidos concluídos como ponto</span>
       </label>
       <span className="menu-sep" />
-      <div className="cab-filtro"><span>Marcação</span><span className="mudo">imagens, vídeos, 3D, assets, páginas</span></div>
+      <div className="cab-filtro"><span>Marcação</span><span className="mudo">imagens, vídeos, 3D, assets, páginas, design systems</span></div>
       {MARCAS.map(([k, r, I]) => linha(k, r, I))}
     </div>
   )

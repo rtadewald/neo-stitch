@@ -15,8 +15,9 @@
     uv run ferramentas/neo.py comentar <CÓDIGO> "texto" [--pin x,y]      (x,y de 0 a 1 sobre a imagem)
     uv run ferramentas/neo.py estado <CÓDIGO…> neutra|aprovada|descartada
     uv run ferramentas/neo.py erro <CÓDIGO> "mensagem"         devolve o pedido com erro (volta a ser editável)
-    uv run ferramentas/neo.py diario <slug> "texto"
     uv run ferramentas/neo.py brief <slug> [--arquivo novo.md]  mostra (ou troca) o brief.md
+    uv run ferramentas/neo.py ds <slug> <pasta> --nome "…" --de JCO-011/v1,JCO-012/v1 --capa capa.png [--nota "…"] [--custo 0]
+                                       registra um design system pronto: copia a pasta e cria o cartão (categoria "Design Systems")
 
 Gerar imagens: ferramentas/gerar.py · vídeos: ferramentas/gerar_video.py. Contrato dos nós: .claude/skills/neo-stitch/modelo.md.
 """
@@ -24,11 +25,57 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import base as B  # noqa: E402
+
+
+def cmd_ds(a):
+    """Um design system pronto (uma pasta com design-system.html) vira um cartão: a pasta vai para ds/<código>/ e um pedido
+    concluído liga o cartão às páginas de onde ele saiu."""
+    origem = Path(a.pasta).expanduser().resolve()
+    capa = Path(a.capa).expanduser().resolve()
+    if not (origem / 'design-system.html').is_file():
+        sys.exit(f'{origem}: não tem design-system.html')
+    if not capa.is_file():
+        sys.exit(f'{capa}: a capa não existe')
+    de = [x.strip() for x in a.de.split(',') if x.strip()]
+    pasta = B.pasta(a.slug)
+    for e in de:
+        ok = (pasta / 'impl' / e).is_dir() if '/' in e else B.caminho_no(a.slug, e).exists()
+        if not ok:
+            sys.exit(f'{e}: não existe no projeto {a.slug}')
+    if any(n['tipo'] == 'ds' and n.get('origem') == str(origem) for n in B.nos(a.slug)):
+        sys.exit(f'{origem}: já registrado')
+    # a cópia vem antes da trava (o app escreve ao mesmo tempo); no APFS é um clone, sem gastar disco
+    (pasta / 'ds').mkdir(exist_ok=True)
+    tmp = pasta / 'ds' / f'.novo-{os.getpid()}'
+    if subprocess.run(['cp', '-cR', str(origem), str(tmp)], capture_output=True).returncode:
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.copytree(origem, tmp)
+    with B.travado(a.slug):
+        todos = {n['id']: n for n in B.nos(a.slug)}
+        n = todos[de[0].split('/')[0]]    # uma página IMG/vN herda a tela da imagem
+        tela = n.get('tela') or todos.get(n.get('pedido'), {}).get('tela')
+        ped = B.novo_no(a.slug, 'pedido', tela=tela, entradas=de, literal=True, status='concluido', quantidade=1, midia='ds',
+                        intencao=a.nota or f'Design system {a.nome}', concluido_em=B.agora(), custo=a.custo)
+        no = B.novo_no(a.slug, 'ds', pedido=ped['id'], nome=a.nome, prompt=a.nota or a.nome, origem=str(origem), custo=a.custo, estado='neutra')
+        cod = no['id']
+        tmp.rename(pasta / 'ds' / cod)
+        arq = pasta / 'ds' / cod / f'capa{capa.suffix.lower()}'
+        shutil.copyfile(capa, arq)
+        B.miniatura(arq, pasta / 'thumbs' / f'{cod}.jpg')
+        larg, alt = B.medidas(arq) or (None, None)
+        no.update({'pagina': f'ds/{cod}/design-system.html', 'arquivo': f'ds/{cod}/{arq.name}', 'thumb': f'thumbs/{cod}.jpg', 'largura': larg, 'altura': alt})
+        B.gravar_no(a.slug, no)
+        ped['saidas'] = [cod]
+        B.gravar_no(a.slug, ped)
+    print(f'{cod} ({a.nome}) registrado no pedido {ped["id"]}, saindo de {", ".join(de)}')
 
 
 def cmd_projetos(a):
@@ -58,7 +105,7 @@ def cmd_pendentes(a):
 
 def linha(n: dict) -> str:
     t = n['tipo']
-    if t in ('imagem', 'video'):
+    if t in ('imagem', 'video', 'ds'):
         extra = f'{n.get("estado")}{" ⏳" if n.get("gerando") else ""}{" ✗" if n.get("erro") else ""} {n.get("nome") or ""}'
     elif t == 'pedido':
         midia = '🎬 ' if n.get('midia') == 'video' else ''
@@ -90,8 +137,8 @@ def cmd_ver(a):
             print('  ' * nivel + linha(f))
             arvore(f['id'], nivel + 1)
     arvore(None, 0)
-    soltos = [n for n in lista if n['tipo'] in ('pedido', 'referencia', 'imagem', 'video')
-              and n.get('pedido' if n['tipo'] in ('imagem', 'video') else 'tela') not in por_id]
+    soltos = [n for n in lista if n['tipo'] in ('pedido', 'referencia', 'imagem', 'video', 'ds')
+              and n.get('pedido' if n['tipo'] in ('imagem', 'video', 'ds') else 'tela') not in por_id]
     for n in soltos:
         print('(solto) ' + linha(n))
 
@@ -119,6 +166,8 @@ def ver_no(slug: str, id_: str):
         print(f'\nBrief ({d / "brief.md"}):\n' + (d / 'brief.md').read_text(encoding='utf-8')[:3000])
     if no['tipo'] in ('imagem', 'video') and no.get('arquivo'):
         print(f'\narquivo: {d / no["arquivo"]}')
+    if no['tipo'] == 'ds':
+        print(f'\ncatálogo: {d / no["pagina"]}\ncapa: {d / no["arquivo"]}')
 
 
 def alterar(slug: str, id_: str, **campos) -> dict:
@@ -207,12 +256,6 @@ def cmd_erro(a):
     print('ok')
 
 
-def cmd_diario(a):
-    with B.travado(a.slug):
-        B.anexar_diario(a.slug, a.texto)
-    print('ok')
-
-
 def cmd_brief(a):
     arq = B.pasta(a.slug) / 'brief.md'
     if a.arquivo:
@@ -243,8 +286,10 @@ def main():
     s.set_defaults(fn=cmd_comentar)
     s = sub.add_parser('estado'); s.add_argument('args', nargs='+'); s.set_defaults(fn=cmd_estado)
     s = sub.add_parser('erro'); s.add_argument('codigo'); s.add_argument('mensagem'); s.set_defaults(fn=cmd_erro)
-    s = sub.add_parser('diario'); s.add_argument('slug'); s.add_argument('texto'); s.set_defaults(fn=cmd_diario)
     s = sub.add_parser('brief'); s.add_argument('slug'); s.add_argument('--arquivo'); s.set_defaults(fn=cmd_brief)
+    s = sub.add_parser('ds'); s.add_argument('slug'); s.add_argument('pasta'); s.add_argument('--nome', required=True)
+    s.add_argument('--de', required=True); s.add_argument('--capa', required=True); s.add_argument('--nota')
+    s.add_argument('--custo', type=float, default=0.0); s.set_defaults(fn=cmd_ds)
     a = ap.parse_args()
     a.fn(a)
 

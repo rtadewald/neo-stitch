@@ -197,9 +197,6 @@ def main() -> None:
     for f in sobras:
         print(f'  ! aprovado sem origem: {f.name}')
 
-    with B.travado(SLUG):
-        B.anexar_diario(SLUG, f'Importado de `20-jarvisOS/prototipos`: {sum(1 for n in B.nos(SLUG) if n["tipo"] == "imagem")} '
-                              f'imagens com os prompts originais, linhagem reconstruída. Custo original ≈ ${nonlocal_total[0]:.2f}.')
     print(f'ok · {len(B.nos(SLUG))} nós · ${nonlocal_total[0]:.2f}')
 
 

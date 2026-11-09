@@ -1,7 +1,7 @@
 import { Handle, Position, useStore, type Node, type NodeProps } from '@xyflow/react'
 import {
   AppWindow, ArrowUp, Bot, Box, Check, ChevronDown, Code2, ExternalLink, Flag, FolderOpen, Globe, LayoutDashboard, Link2, LoaderCircle, MessageCircle,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clapperboard, Focus, Image as ImageIcon, Layers, Pin, PinOff, Minus, Play, Plus, Quote, RotateCw, Smartphone, Sparkles, Trash2, TriangleAlert, X, Archive,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clapperboard, Focus, Image as ImageIcon, Layers, Palette, Pin, PinOff, Minus, Play, Plus, Quote, RotateCw, Smartphone, Sparkles, Trash2, TriangleAlert, X, Archive,
 } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, arquivoUrl, dinheiro, urlModelo, type ModeloVideo, type No } from './api'
@@ -141,7 +141,7 @@ export const BriefNode = memo(function BriefNode({ data, selected }: NodeProps<N
       </div>
       <button type="button" className={`brief-texto ${texto ? '' : 'vazio'}`} title="Editar o brief (arraste para mover)"
         onPointerDown={(e) => { inicio.current = { x: e.clientX, y: e.clientY } }}
-        onClick={(e) => { if (Math.hypot(e.clientX - inicio.current.x, e.clientY - inicio.current.y) < 4) painel('brief') }}>
+        onClick={(e) => { if (Math.hypot(e.clientX - inicio.current.x, e.clientY - inicio.current.y) < 4) painel() }}>
         {texto || 'Descreva o projeto…'}
       </button>
       {dirs.length > 0 && (
@@ -522,7 +522,7 @@ export const ImagemNode = memo(function ImagemNode({ data, selected }: NodeProps
 
 /** A legenda fixa de todo cartão de mídia: o tipo (ícone na cor dele), o código (clique copia), o nome e o custo. */
 const TIPO = {
-  imagem: [ImageIcon, 'Imagem'], asset: [Layers, 'Asset: gerado durante uma página'], referencia: [Link2, 'Referência'], video: [Clapperboard, 'Vídeo'], modelo: [Box, 'Modelo 3D'], site: [Code2, 'HTML'],
+  imagem: [ImageIcon, 'Imagem'], asset: [Layers, 'Asset: gerado durante uma página'], referencia: [Link2, 'Referência'], video: [Clapperboard, 'Vídeo'], modelo: [Box, 'Modelo 3D'], site: [Code2, 'HTML'], ds: [Palette, 'Design System'],
 } as const
 function Legenda({ no, extra, custo }: { no: No; extra?: ReactNode; custo?: number }) {
   const [I, rotulo] = TIPO[(no.asset ? 'asset' : no.tipo) as keyof typeof TIPO] || TIPO.imagem
@@ -680,8 +680,8 @@ export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoR
         <div className="quadro" style={{ height: h }}
           onMouseEnter={() => { espera.current = window.setTimeout(() => setMouse(true), 250) }}
           onMouseLeave={() => { window.clearTimeout(espera.current); setMouse(false) }}>
-        {pronto && <img className={`foto-pagina ${foto ? '' : 'sem-foto'}`} src={poster} alt="" draggable={false} />}
-        {viva && (pronto || previa) && <iframe src={abrir!} title={no.id} loading="lazy" tabIndex={-1} />}
+        {pronto && <img className="foto-pagina" src={poster} alt="" draggable={false} />}
+        {viva && (pronto || previa) && <iframe src={abrir!} title={no.id} loading="lazy" tabIndex={-1} inert />}
         {abrir && (
           <button type="button" className="abrir-centro nodrag" title={pronto ? 'Abrir a página em outra aba (interativa)' : 'Abrir a prévia em outra aba'}
             onClick={(e) => { e.stopPropagation(); window.open(abrir, '_blank', 'noreferrer') }}>
@@ -725,5 +725,34 @@ export const SiteNode = memo(function SiteNode({ data, selected }: NodeProps<NoR
   )
 })
 
-export const nodeTypes = { brief: BriefNode, tela: TelaNode, pedido: PedidoNode, imagem: ImagemNode, referencia: RefNode, video: VideoNode, modelo: ModeloNode, site: SiteNode }
+/** Design system: um catálogo (ds/<código>/design-system.html) destacado como a referência. O quadro mostra o print; dois cliques abrem o catálogo. */
+export const DsNode = memo(function DsNode({ data, selected }: NodeProps<NoRF>) {
+  const { no } = data
+  const { slug } = useCanvas()
+  const { w, h } = medidaImagem(no)
+  const estado = no.estado || 'neutra'
+  const abrir = () => { if (no.pagina) window.open(arquivoUrl(slug, no.pagina), '_blank', 'noreferrer') }
+  return (
+    <div className={`no imagem ds es-${estado} ${selected ? 'sel' : ''}`} style={{ width: w }} onDoubleClick={abrir}>
+      <div className="moldura">
+        <div className="quadro" style={{ height: h }}>
+          <img src={arquivoUrl(slug, no.thumb || no.arquivo)} alt={no.nome || no.id} draggable={false} />
+          <Nitida no={no} w={w} />
+          <button type="button" className="abrir-centro nodrag" title="Abrir o design system em outra aba"
+            onClick={(e) => { e.stopPropagation(); abrir() }}>
+            <ExternalLink size={16} /> Abrir
+          </button>
+          <div className="acoes">
+            <BotoesEstado no={no} />
+            <BotaoAbrir no={no} />
+          </div>
+        </div>
+        <Legenda no={no} />
+      </div>
+      <Alcas />
+    </div>
+  )
+})
+
+export const nodeTypes = { brief: BriefNode, tela: TelaNode, pedido: PedidoNode, imagem: ImagemNode, referencia: RefNode, video: VideoNode, modelo: ModeloNode, site: SiteNode, ds: DsNode }
 

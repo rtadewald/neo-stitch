@@ -25,7 +25,7 @@ export const PONTO = 26
 
 export function medida(no: No, pontos = false): { w: number; h: number } {
   if (pontos && ehPonto(no)) return { w: PONTO, h: PONTO }
-  if (no.tipo === 'imagem' || no.tipo === 'referencia' || no.tipo === 'video' || no.tipo === 'modelo' || no.tipo === 'site') {
+  if (no.tipo === 'imagem' || no.tipo === 'referencia' || no.tipo === 'video' || no.tipo === 'modelo' || no.tipo === 'site' || no.tipo === 'ds') {
     const m = medidaImagem(no)
     return { w: m.w, h: m.h + LEGENDA }
   }
@@ -70,7 +70,7 @@ export function arvore(nos: No[]): Arvore {
         ligar(n.id, ref.id)
       } else ligar(n.id, n.tela)
     }
-    if (n.tipo === 'imagem' || n.tipo === 'video' || n.tipo === 'modelo' || n.tipo === 'site') ligar(n.id, n.pedido)
+    if (n.tipo === 'imagem' || n.tipo === 'video' || n.tipo === 'modelo' || n.tipo === 'site' || n.tipo === 'ds') ligar(n.id, n.pedido)
   }
   const filhos = new Map<string, string[]>()
   for (const n of ordem) {
@@ -249,8 +249,8 @@ export function descendentes(a: Arvore, id: string): number {
   return a.total.get(id) || 0
 }
 
-export type ModoLayout = 'pilha' | 'grade' | 'grade3' | 'grade4' | 'grade5'
-const POR_COLUNA = 3   // no modo grade: quantas folhas por coluna antes de abrir a próxima
+// grade: por nível (cada nível numa coluna só) · gradeN: os filhos em colunas de N
+export type ModoLayout = 'grade' | 'grade3' | 'grade4' | 'grade5' | 'grade6' | 'grade8'
 const GAP_COL = 36
 const GAP_PAI_X = 320   // grade: entre colunas quando a de trás tem galho
 const GAP_PAI_Y = 140   // entre irmãos empilhados quando um deles tem galho
@@ -261,7 +261,7 @@ const GAP_PAI_Y = 140   // entre irmãos empilhados quando um deles tem galho
  * `compacto` (o "Distribuir"): os galhos sobem para os vãos em vez de cada um ocupar uma faixa da altura inteira.
  */
 export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: number; h: number }>, oculto: (n: No) => boolean,
-  modo: ModoLayout = 'pilha', pontos = false, compacto = false) {
+  modo: ModoLayout = 'grade', pontos = false, compacto = false) {
   const porId = new Map(nos.map((n) => [n.id, n]))
   // o ponto tem tamanho fixo (a medida guardada pode ser a do card, de antes de virar ponto)
   const m = (id: string) => {
@@ -276,30 +276,12 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
     return (a.filhos.get(id) || []).filter((f) => !fora.has(f) && (!oculto(porId.get(f)!) || (a.filhos.get(f) || []).length))
   }
 
-  // modo grade: as folhas (filhos sem galho visível) viram uma grade de colunas de 3 ao lado do pai;
-  // os filhos que têm galho continuam empilhados abaixo dela, abrindo a árvore para a direita
-  const separar = (id: string) => {
-    const fs = visiveisDe(id)
-    if (modo !== 'grade') return { folhas: [] as string[], galhos: fs }
-    const folhas = fs.filter((f) => !visiveisDe(f).length)
-    if (folhas.length < 2) return { folhas: [] as string[], galhos: fs }
-    const ehFolha = new Set(folhas)
-    return { folhas, galhos: fs.filter((f) => !ehFolha.has(f)) }
-  }
-  const grade = (folhas: string[]) => {
-    const cw = Math.max(...folhas.map((f) => m(f).w))
-    const ch = Math.max(...folhas.map((f) => m(f).h))
-    const linhas = Math.min(POR_COLUNA, folhas.length)
-    const cols = Math.ceil(folhas.length / POR_COLUNA)
-    return { cw, ch, linhas, cols, h: linhas * ch + (linhas - 1) * GAP_Y }
-  }
-
-  // modos grade N×N (3, 4, 5): em TODO nível os filhos — com ou sem galho — vão em colunas de N; cada um ocupa o bloco do
+  // modos grade N×N (3, 4, 5, 6, 8): em TODO nível os filhos — com ou sem galho — vão em colunas de N; cada um ocupa o bloco do
   // próprio galho (largura e altura da subárvore), e as colunas ficam lado a lado. Entre blocos que têm galho o espaço é
   // maior (GAP_PAI_X/Y): um pai não encosta nos filhos do vizinho e não parece filho dele
   const larguras = new Map<string, number>()
-  const porCol = modo === 'grade5' ? 5 : modo === 'grade4' ? 4 : 3   // grade N×N: N filhos por coluna
-  const emGradeN = modo === 'grade3' || modo === 'grade4' || modo === 'grade5'
+  const porCol = Number(modo.slice(5))   // grade N×N: N filhos por coluna (0 no modo por nível)
+  const emGradeN = porCol > 0
   const colunas = (id: string) => {
     const fs = visiveisDe(id)
     const cols: string[][] = []
@@ -349,38 +331,26 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
   const alturas = new Map<string, number>()
   const altura = (id: string): number => {
     if (emGradeN) return medir3(id).h
-    const { folhas, galhos } = separar(id)
-    const partes = [...(folhas.length ? [grade(folhas).h] : []), ...galhos.map((f) => altura(f))]
-    const h = Math.max(m(id).h, partes.reduce((s, x) => s + x, 0) + GAP_Y * Math.max(0, partes.length - 1))
+    const fs = visiveisDe(id)
+    fs.forEach(altura)
+    const h = Math.max(m(id).h, altColuna(fs))
     alturas.set(id, h)
     return h
   }
   const pos: Record<string, Pos> = {}
   const colocar = (id: string, x: number, topo: number) => {
     if (emGradeN) return colocar3(id, x, topo)
-    const { folhas, galhos } = separar(id)
+    const fs = visiveisDe(id)
     const { w, h } = m(id)
     const H = alturas.get(id)!
-    const g = folhas.length ? grade(folhas) : null
-    const partes = [...(g ? [g.h] : []), ...galhos.map((f) => alturas.get(f)!)]
-    const total = partes.reduce((s, v) => s + v, 0) + GAP_Y * Math.max(0, partes.length - 1)
-    let y = topo + (H - total) / 2
+    let y = topo + (H - altColuna(fs)) / 2
     const centros: number[] = []
-    const xf = x + w + GAP_X
-    if (g) {
-      folhas.forEach((f, i) => {
-        const col = Math.floor(i / POR_COLUNA)
-        const lin = i % POR_COLUNA
-        pos[f] = { x: Math.round(xf + col * (g.cw + GAP_COL)), y: Math.round(y + lin * (g.ch + GAP_Y)) }
-      })
-      centros.push(y + g.ch / 2, y + g.h - g.ch / 2)
-      y += g.h + GAP_Y
-    }
-    for (const f of galhos) {
-      colocar(f, xf, y)
+    fs.forEach((f, i) => {
+      if (i) y += gapY(fs[i - 1], f)
+      colocar(f, x + w + GAP_X, y)
       centros.push(pos[f].y + m(f).h / 2)
-      y += alturas.get(f)! + GAP_Y
-    }
+      y += alturas.get(f)!
+    })
     const centro = centros.length ? (Math.min(...centros) + Math.max(...centros)) / 2 : topo + H / 2
     pos[id] = { x: Math.round(x), y: Math.round(centro - h / 2) }
   }
@@ -395,6 +365,24 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
     topo += alturas.get(r.id)! + 80
   }
 
+  // por nível: todo o mesmo nível na mesma coluna, em toda a árvore. O nível é a geração, sem contar os pedidos (5 referências
+  // numa coluna, as 15 imagens delas na seguinte); os pedidos ficam numa coluna própria, entre as duas
+  if (!emGradeN) {
+    const col = new Map<string, number>()
+    const ir = (id: string, g: number) => {
+      const ped = porId.get(id)?.tipo === 'pedido'
+      col.set(id, ped ? 2 * g + 1 : 2 * g)
+      for (const f of visiveisDe(id)) ir(f, porId.get(f)?.tipo === 'pedido' && !ped ? g : g + 1)
+    }
+    for (const r of raizes) ir(r.id, 0)
+    const larg = new Map<number, number>()
+    for (const [id, c] of col) larg.set(c, Math.max(larg.get(c) || 0, m(id).w))
+    const xDe = new Map<number, number>()
+    let x = 0
+    for (const c of [...larg.keys()].sort((p, q) => p - q)) { xDe.set(c, x); x += larg.get(c)! + GAP_X }
+    for (const [id, c] of col) pos[id] = { x: xDe.get(c)!, y: pos[id].y }
+  }
+
   // compacto: cada galho sobe até encostar no que já está acima dele, onde as colunas se cruzam (um galho baixinho não
   // fica mais preso embaixo do galho comprido do irmão); depois o pai se recentraliza nos filhos
   type Caixa = { x: number; y: number; w: number; h: number }
@@ -403,15 +391,14 @@ export function layoutArvore(nos: No[], a: Arvore, medidas: Map<string, { w: num
   // as pilhas de cada nó (filhos empilhados na mesma coluna), cada uma com os grupos que sobem juntos
   const pilhasDe = (id: string): string[][][] => {
     if (emGradeN) return colunas(id).map((c) => c.map((f) => [f]))
-    const { folhas, galhos } = separar(id)
-    return [[...(folhas.length ? [folhas] : []), ...galhos.map((f) => [f])]]
+    return [visiveisDe(id).map((f) => [f])]
   }
   const empilhar = (pilha: string[][], gap0: number) => {
     const acima: Caixa[] = []
     let antes: string[] = []
     for (const g of pilha) {
-      // na grade, blocos com galho guardam o espaço maior (um pai não encosta nos filhos do vizinho)
-      const gap = emGradeN && (g.some(temGalho) || antes.some(temGalho)) ? Math.max(gap0, GAP_PAI_Y) : gap0
+      // blocos com galho guardam o espaço maior (um pai não encosta nos filhos do vizinho)
+      const gap = g.some(temGalho) || antes.some(temGalho) ? Math.max(gap0, GAP_PAI_Y) : gap0
       antes = g
       const ids = g.flatMap(galho)
       const cx = ids.map(caixa)

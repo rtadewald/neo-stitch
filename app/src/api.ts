@@ -10,7 +10,8 @@ export type Variacao = { nome: string; prompt?: string; tese?: string }
 
 export type No = {
   id: string
-  tipo: 'brief' | 'tela' | 'pedido' | 'imagem' | 'referencia' | 'video' | 'modelo' | 'site'
+  tipo: 'brief' | 'tela' | 'pedido' | 'imagem' | 'referencia' | 'video' | 'modelo' | 'site' | 'ds'
+  pagina?: string   // design system: o catálogo (ds/<código>/design-system.html)
   criado: string
   atualizado?: string
   pos: Pos | null
@@ -57,6 +58,8 @@ export type No = {
   site?: { img: string; versao: string; trabalho?: Trabalho; foto?: number }   // foto: mtime do captura.png (o print)
 }
 
+export type Chave = { nome: string; rotulo: string; para: string; link: string; origem: 'ambiente' | '.env' | '~/.env' | null }
+
 export type Projeto = {
   slug: string
   nome: string
@@ -64,7 +67,7 @@ export type Projeto = {
   tipo: 'site' | 'app' | 'dashboard' | 'webapp'
   padroes: { modelo: string; aspecto: string; resolucao: string; quantidade: number }
   tetos: { imagens_por_pedido: number; diario_usd: number }
-  layout?: 'pilha' | 'grade' | 'grade3' | 'grade4' | 'grade5'
+  layout?: 'grade' | 'grade3' | 'grade4' | 'grade5' | 'grade6' | 'grade8'
   compacto?: boolean      // o "Distribuir": os galhos sobem para os vãos do canvas
   pinados?: string[]      // as vistas pinadas (a mais recente em cima)
   historico?: string[]    // as últimas vistas abertas (até 10); uma vista está num lugar só
@@ -79,7 +82,6 @@ export type EstadoProjeto = {
   nos: No[]
   custos: { total: number; hoje: number }
   brief: string
-  diario: string
   modelos: Record<string, { nome: string; preco: number }>
   modelos_video: Record<string, ModeloVideo>
   aspectos: string[]
@@ -142,6 +144,8 @@ export const api = {
   specAgentes: () => req<{ texto: string; caminho: string; raiz: string }>('GET', '/api/spec/agentes'),
   criarProjeto: (d: { nome: string; tipo: string; descricao: string }) => req<ResumoProjeto>('POST', '/api/projetos', d),
   estado: (slug: string, rev?: string) => req<EstadoProjeto>('GET', `${P(slug)}${rev ? `?rev=${rev}` : ''}`),
+  config: () => req<{ chaves: Chave[] }>('GET', '/api/config'),
+  mudarChave: (nome: string, valor: string) => req<{ chaves: Chave[] }>('PUT', '/api/config/chaves', { nome, valor }),
   mudarProjeto: (slug: string, d: Partial<Omit<Projeto, 'final'>> & { final?: string | null }) => req<Projeto>('PATCH', P(slug), d),
   vista: (slug: string, acao: 'abrir' | 'pinar' | 'despinar', id: string) =>
     req<{ pinados: string[]; historico: string[] }>('POST', `${P(slug)}/vistas`, { acao, id }),

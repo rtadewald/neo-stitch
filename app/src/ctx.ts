@@ -12,7 +12,7 @@ export type Ctx = {
   apagar: (id: string) => Promise<void>
   acao: <T>(fn: () => Promise<T>) => Promise<T | undefined>
   abrir: (id: string) => void
-  painel: (aba: 'brief' | 'diario') => void
+  painel: () => void   // abre o brief
   novoPedido: (entradas: string[], tela?: string, extra?: Partial<No>) => Promise<No | undefined>
   pedidoVideo: (imagem: string) => Promise<No | undefined>
   novaTela: () => Promise<unknown>

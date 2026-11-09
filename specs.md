@@ -50,12 +50,12 @@ O processo atual (ex.: `20-jarvisOS/prototipos`, 125 imagens) perde informação
     <slug>/
       projeto.json      # config, padrões de geração, tetos de custo, prefixo do código
       brief.md
-      diario.md
       nodes/            # um JSON por nó (evita conflito de escrita)
       fila/             # pedidos pendentes / trabalhando
       images/           # <código>.png
       refs/             # referências externas
       impl/<código>/vN/ # (v2) saída do img-to-html: index.html + assets/
+      ds/<código>/      # design system: design-system.html + assets/ + capa.png
 ```
 
 ## 5. Modelo do canvas
@@ -69,6 +69,7 @@ O processo atual (ex.: `20-jarvisOS/prototipos`, 125 imagens) perde informação
 | **Imagem** | Resultado de um pedido. Código curto estável (ex.: `JAR-042`), estado, comentários. |
 | **Referência** | Imagem externa arrastada/colada (Pinterest, prints…). |
 | **Implementação** (v2) | Filha de uma imagem ✅. Ver §8. |
+| **Design system** | Catálogo (Overview e Components) tirado de páginas prontas. Sai da 1ª página por um pedido; categoria própria no filtro. Ver §12. |
 
 - **Linhagem automática:** pai → Pedido → filhos. O Pedido fica sempre visível entre pai e filhos (guarda o "porquê").
 - **Recombinação:** selecionar N imagens/refs → "Novo pedido" (nasce ligado a todas).
@@ -99,7 +100,7 @@ O processo atual (ex.: `20-jarvisOS/prototipos`, 125 imagens) perde informação
 5. **Padrões de geração:** por projeto (tipo site/app/dashboard/webapp → aspect ratio e modelo sugeridos), sobrescrevíveis por pedido. Quantidade padrão: **3**. Modelo padrão atual: `openai/gpt-image-2`, 1K.
 6. **Limite de gasto:** pedidos de até 6 imagens rodam direto; acima disso, ou se o projeto passar do teto diário (ex.: $20), o Claude pergunta antes. Painel mostra custo total e do dia (~$0,13–0,15/img no gpt-image-2).
 7. **Sem chat no app.** Conversa fica no Claude Code; o app é o canal assíncrono (pedidos, comentários, aprovações).
-8. **Diário:** `diario.md` por projeto, mantido pelo Claude, visível num painel — registra decisões ("JAR-042 aprovada porque…", "abordagem shader venceu porque…").
+8. ~~**Diário:**~~ removido em 2026-11 (não era usado; os `diario.md` antigos ficam sem uso no disco). Era um `diario.md` por projeto, mantido pelo Claude, visível num painel — registra decisões ("JAR-042 aprovada porque…", "abordagem shader venceu porque…").
 
 ## 7. Import do JarvisOS (v1)
 
@@ -170,5 +171,10 @@ Esse pacote é o ponto de partida para o Claude da outra pasta implementar front
 movimento (mapa de pixels + Gemini 3.8 Flash), escreve o mapa de vida (`vida.md`), reconstrói em camadas (img-to-html) e anima em
 código (CSS/SVG → Canvas → Three.js, GSAP) — vídeo nunca vira asset. Protótipo: `impl/JAR-095/v1` (do vídeo JAR-154); validação:
 `impl/JAR-115/v1` (do JAR-170). As versões de `impl/` aparecem como nós no canvas, rodando.
+
+**Design systems (2026-11-09):** nó `ds`, criado só por `neo.py ds`. A pasta vai para `ds/<código>/` e um pedido concluído
+(`midia: ds`) guarda as páginas de origem nas `entradas`. O cartão é destacado como a referência, em rosa, para não confundir
+com o lilás, e tem a categoria "Design Systems" no Filtrar. Essa categoria não traz o ponto do pedido, porque ele cairia sobre
+a coluna vizinha da grade. O cartão mostra um print em vez de rodar o catálogo, que empilha várias páginas vivas.
 
 **Fica para depois:** UI para editar padrões/tetos do projeto (só via API/`projeto.json`), v2 (implementações).

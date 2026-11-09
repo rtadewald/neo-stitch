@@ -118,6 +118,7 @@ Testamos os 25 modelos de image-to-video do OpenRouter em quatro telas. O que im
 - **Recolher com intenção:** cada galho fecha numa pílula com a contagem; `⌘1`/`⌘2`/`⌘3` mostram uma geração de cada vez; `⌘A` deixa só o caminho até as aprovadas.
 - **Visualizador** com comentários em pontos da imagem (ou em segundos do vídeo), "Veio de" / "Saiu daqui" e um filme estilo Finder com as irmãs.
 - **Pedidos de vídeo** com vários modelos, duração, resolução e estimativa de custo antes de enviar.
+- **Design systems:** páginas prontas viram um catálogo (Overview e Components), num cartão destacado e em categoria própria no filtro.
 - **Vistas:** qualquer nó abre o canvas recortado a partir dele; a barra lateral guarda os pinados e o histórico das 10 últimas.
 - **Desfazer tudo:** `⌘Z`/`⌘⇧Z` para posições, galhos, marcações, pedidos e itens apagados (nada sai do disco: vai para a lixeira do projeto).
 - **Custos sob controle:** custo por imagem, por pedido e por dia, com tetos que pedem confirmação.
@@ -135,7 +136,7 @@ cd neo-stitch
 npm --prefix app install
 npm --prefix app run build
 
-# a chave do OpenRouter (fica fora do git)
+# a chave do OpenRouter (fica fora do git); dá para definir depois, no botão Config do app
 echo 'OPENROUTER_API_KEY=sk-or-...' > .env
 
 # o servidor: API + arquivos + app em http://localhost:8730/
@@ -182,17 +183,17 @@ Os mesmos comandos funcionam pelo chat: "gera 3 variações da JAR-042 mais neon
 ferramentas/          Python, só biblioteca padrão (uv run)
   servidor.py         API + arquivos (com Range, para os vídeos) + app compilado
   base.py             caminhos, trava por projeto, nós, códigos, custos
-  neo.py              o lado do Claude: fila, contexto, direções, estados, diário
+  neo.py              o lado do Claude: fila, contexto, direções, estados, design systems
   gerar.py            imagens (OpenRouter /images, em paralelo, várias referências)
   gerar_video.py      vídeos (OpenRouter /videos, assíncrono, vários modelos)
   openrouter.py       cliente HTTP mínimo
 app/src/              Vite + React 19 + React Flow 12
   Canvas.tsx          o canvas: árvore, atalhos, seleção, menu, organização
-  nodes.tsx           os nós: brief, tela, pedido, imagem, referência, vídeo
+  nodes.tsx           os nós: brief, tela, pedido, imagem, referência, vídeo, design system
   Viewer.tsx          o visualizador com pins e linhagem
   Trilho.tsx          a barra lateral: vistas pinadas e histórico
   layout.ts           a árvore e os modos de arranjo
-projects/<slug>/      os dados (um JSON por nó, imagens, vídeos, impl/) — fora do git
+projects/<slug>/      os dados (um JSON por nó, imagens, vídeos, impl/, ds/) — fora do git
 .claude/skills/       a skill que ensina o Claude a operar o canvas
 ```
 

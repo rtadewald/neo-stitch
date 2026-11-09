@@ -4,7 +4,8 @@ Este guia serve para qualquer agente de código (Claude Code, Codex, OpenCode, G
 Stitch numa **página HTML viva e interativa**. Ele também garante que o usuário acompanhe no app quem está
 trabalhando, em que etapa e quanto já custou.
 
-Antes deste guia, leia o [AGENTS.md](../AGENTS.md) da raiz (as regras do repositório).
+Antes deste guia, leia o [AGENTS.md](../AGENTS.md) da raiz (as regras do repositório). Para tirar um **design system** de
+páginas prontas, vá direto à seção 11.
 
 **Como funciona:** cada página é uma pasta `projects/<projeto>/impl/<IMAGEM>/vN/` com uma ficha, o `impl.json`. O
 comando `ferramentas/impl.py` escreve essa ficha e registra no canvas tudo o que você gerar. O app lê a ficha e atualiza
@@ -192,3 +193,48 @@ Quem a escreve é o `impl.py`. Escreva à mão só se não puder rodar `uv`: gra
 - **erro / abandonado:** o cartão fica apagado, com o motivo.
 
 Todo cartão de página também tem os botões de abrir a pasta no Finder, pinar e abrir a vista a partir dele.
+
+## 11. Design system: páginas prontas viram um catálogo
+
+Um design system é um catálogo tirado de uma ou mais páginas: a **Overview** mostra as páginas, e a **Components** documenta
+tipografia, cores, fundos e componentes. Ele vira um cartão próprio, do tipo `ds`. Quem tem a skill `extract-ds` segue o
+método dela, junto com esta seção.
+
+**1. Monte a pasta fora de `impl/`.** Copie o que precisar das páginas e não altere as originais. A pasta precisa ter um
+`design-system.html` na raiz, com caminhos relativos, porque o catálogo abre em
+`http://localhost:8730/projects/<projeto>/ds/<CÓDIGO>/design-system.html`.
+
+**2. Faça a capa.** É o print do catálogo aberto, em 16:9 (ex.: 1536×864), em PNG. O cartão mostra esse print em vez de
+rodar a página.
+
+**3. Registre:**
+
+```bash
+uv run ferramentas/neo.py ds jarvis-conteudo <pasta> --nome "Robô azul" --de JCO-193/v1,JCO-194/v1 \
+  --capa capa.png --nota "extraído das duas páginas com a extract-ds" --custo 0
+```
+
+| Opção | O que é |
+|---|---|
+| `--nome` | o nome na legenda do cartão |
+| `--de` | as páginas de origem, na ordem, separadas por vírgula. Aceita `<IMAGEM>/vN` ou o código de um nó |
+| `--capa` | o print do passo 2 |
+| `--nota` | o que é o catálogo e de onde veio; vira a intenção do pedido |
+| `--custo` | US$ gastos em APIs para fazer o catálogo (`0` se nada foi pago) |
+
+O comando copia a pasta para `projects/<projeto>/ds/<CÓDIGO>/`, cria um pedido concluído com as páginas nas `entradas` e
+pendura o cartão nele. Ele recusa registrar a mesma pasta duas vezes. Nunca crie esse cartão com `impl.py` ou `gerar.py`.
+
+**4. Mostre ao usuário.** Passe o código do cartão no chat e espere a resposta. Ele abre o catálogo pelo próprio cartão.
+
+**Alterações:** ajuste os arquivos em `ds/<CÓDIGO>/`; a pasta de origem não fica mais ligada ao cartão. A capa é um print
+fixo e não se atualiza sozinha. Uma versão nova, com outra direção, é outra pasta e outro `neo.py ds`.
+
+**No app:**
+
+- O cartão é destacado como a referência, com painel e etiqueta rosa, e sai da 1ª página de `--de`. As outras páginas ligam
+  por uma linha tracejada.
+- No **Filtrar**, a categoria **Design Systems** mostra só esses cartões.
+- O botão **Abrir**, ou dois cliques, abre o catálogo em outra aba. O cartão também pode ser pinado ou descartado.
+- O cartão não tem botão de apagar nem de versão final. Apagar o pedido dele leva o cartão para a lixeira, mas a pasta
+  `ds/<CÓDIGO>/` fica onde está.

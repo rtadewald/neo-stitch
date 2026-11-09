@@ -8,7 +8,7 @@ Canvas local para explorar interfaces: imagem → vídeo → HTML vivo. **Antes 
 ## Estrutura
 
 - `ferramentas/` — Python só com biblioteca padrão, rodado com `uv run`:
-  `servidor.py` (API + arquivos + app compilado, porta 8730) · `neo.py` (o lado do Claude: fila, contexto, direções, estados, diário) ·
+  `servidor.py` (API + arquivos + app compilado, porta 8730) · `neo.py` (o lado do Claude: fila, contexto, direções, estados, registro de design systems) ·
   `gerar.py` (OpenRouter /images, N em paralelo, várias referências) · `gerar_video.py` (OpenRouter /videos, um vídeo por
   modelo) · `openrouter.py` (cliente HTTP e a chave) · `pagina_videos.py` (página de comparação avulsa) · `ouvir.sh` (o Monitor
   da fila) · `importar_jarvis.py` (import do 20-jarvisOS) · `impl.py` (implementações vídeo → HTML por qualquer agente: reservar a vN,
@@ -16,7 +16,7 @@ Canvas local para explorar interfaces: imagem → vídeo → HTML vivo. **Antes 
   códigos, custos, avanços, vistas).
 - `app/` — Vite + React + React Flow (`@xyflow/react`). Dev: `npm run dev` (porta 5173, repassa /api e /projects para 8730).
   Produção: `npm run build` → `app/dist`, servido pelo `servidor.py` (que recompila ao iniciar se `app/src` for mais novo).
-- `projects/<slug>/` — os dados (um JSON por nó, imagens, vídeos, modelos 3D em models/, thumbs, refs, impl/, brief.md, diario.md, lixeira/). Não versionar.
+- `projects/<slug>/` — os dados (um JSON por nó, imagens, vídeos, modelos 3D em models/, thumbs, refs, impl/, design systems em ds/, brief.md, lixeira/). Não versionar.
 - `docs/` — o que o README mostra (demo, evolução imagem → vídeo → HTML) e o guia de uso (`docs/USO.md`).
 - `fila.jsonl` — fila append-only que o app escreve e o Claude ouve (`tail -F`).
 

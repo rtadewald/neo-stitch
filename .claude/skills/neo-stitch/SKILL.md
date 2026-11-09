@@ -1,6 +1,6 @@
 ---
 name: neo-stitch
-description: Opera o canvas do Neo Stitch — ouve a fila do app, propõe direções de estilo, escreve os prompts e gera as imagens dos pedidos, responde comentários e mantém o diário. Use quando o usuário falar do Neo Stitch, do canvas, citar um código de nó (ex. JAR-042), pedir variações de uma imagem, ou disser "ouça o canvas" / "roda os pedidos".
+description: Opera o canvas do Neo Stitch — ouve a fila do app, propõe direções de estilo, escreve os prompts e gera as imagens dos pedidos, e responde comentários. Use quando o usuário falar do Neo Stitch, do canvas, citar um código de nó (ex. JAR-042), pedir variações de uma imagem, ou disser "ouça o canvas" / "roda os pedidos".
 ---
 
 # Neo Stitch
@@ -40,8 +40,7 @@ Cada evento é uma linha `{"projeto", "id", "acao"}`. Antes de qualquer coisa, r
    `uv run ferramentas/gerar.py <id> --json '[{"nome": "…", "prompt": "…"}, …]'`
    - **Saída 3** = bateu num teto de custo (mais de 6 imagens no pedido ou acima do teto diário). Pergunte ao usuário no chat e rode de novo com `--confirmado` só depois do sim.
    - **Falha da API** → as imagens ficam com `erro` e o pedido também. Tente uma vez de novo; persistindo, devolva com `neo.py erro <id> "motivo"`.
-4. Se algo foi decidido (direção escolhida, motivo de um descarte), registre: `neo.py diario <slug> "…"`.
-5. Não narre cada passo no chat. Uma linha basta ("JAR-120: 3 variações penduradas, $0.41").
+4. Não narre cada passo no chat. Uma linha basta ("JAR-120: 3 variações penduradas, $0.41").
 
 ### acao = "video" (nó Pedido com `midia: "video"`)
 O vídeo é **referência de movimento** de uma imagem: mostra como a tela "vive" (o que respira, acende, é selecionado). Não é a implementação. A primeira entrada é o quadro inicial; o pedido traz `modelos` (um vídeo por modelo), `duracao` (s) e `resolucao`.
@@ -76,6 +75,7 @@ O pedido nasce no canvas e mantém a linhagem. Projeto novo pelo chat: `neo.py n
 - Responder um comentário: `neo.py comentar JAR-042 "…" [--pin x,y]`. Aparece como pin escuro (do Claude) no visualizador.
 - Ver o projeto inteiro: `neo.py ver <slug>`, uma árvore compacta com estados e comentários.
 - Brief: `neo.py brief <slug>` lê; `--arquivo novo.md` troca.
+- Design system: monte a pasta fora de `impl/` (skill `extract-ds`) e registre com `neo.py ds <slug> <pasta> --nome "…" --de JCO-193/v1,JCO-194/v1 --capa capa.png --custo 0`. Passo a passo: `docs/AGENTES.md`, seção 11.
 
 ## 6. Implementações (HTML)
 
@@ -95,5 +95,4 @@ terminar com uma fase que nunca passou por `aguardar`.
 
 As implementações (imagem ✅ → HTML vivo com `img-to-html`, depois a fase "Vida" com `animate`) estão especificadas em `specs.md` §8–9. Quando o usuário pedir, siga a spec:
 - abra uma sessão própria por implementação;
-- salve em `projects/<slug>/impl/<código>/vN/`;
-- registre no diário.
+- salve em `projects/<slug>/impl/<código>/vN/`.

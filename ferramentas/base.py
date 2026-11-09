@@ -3,9 +3,8 @@
 Cada projeto vive em projects/<slug>/:
     projeto.json   config (nome, prefixo, tipo, padrões de geração, tetos de custo, contador de códigos)
     brief.md       o brief (mantido pelo Claude; editável no app)
-    diario.md      o diário de decisões (o Claude escreve)
-    nodes/<COD>.json  um arquivo por nó (brief, tela, pedido, imagem, referencia)
-    images/<COD>.png  · thumbs/<COD>.jpg · refs/<COD>.<ext> · lixeira/
+    nodes/<COD>.json  um arquivo por nó (brief, tela, pedido, imagem, referencia, video, modelo, ds)
+    images/<COD>.png  · thumbs/<COD>.jpg · refs/<COD>.<ext> · ds/<COD>/design-system.html · lixeira/
 
 Contrato dos nós: .claude/skills/neo-stitch/modelo.md. Toda escrita passa por `travado(slug)` (fcntl) e `gravar_json`
 (temp + rename), então o servidor e os scripts do Claude nunca perdem a escrita um do outro.
@@ -30,7 +29,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 PROJETOS = RAIZ / 'projects'
 FILA = RAIZ / 'fila.jsonl'
 
-TIPOS_NO = ('brief', 'tela', 'pedido', 'imagem', 'referencia', 'video', 'modelo')
+TIPOS_NO = ('brief', 'tela', 'pedido', 'imagem', 'referencia', 'video', 'modelo', 'ds')
 ESTADOS = ('neutra', 'aprovada', 'descartada')   # sem favorita: o favorito é o pinado (vistas, abaixo)
 MODELOS = {
     'openai/gpt-image-2': {'nome': 'GPT Image 2', 'preco': 0.14},
@@ -63,7 +62,7 @@ VIDEO_NO_APP = {
     'bytedance/seedance-2.5': 'poderoso e caro',
 }
 SUBPASTAS = ('nodes', 'images', 'thumbs', 'refs', 'videos', 'models')
-LAYOUTS = ('pilha', 'grade', 'grade3', 'grade4', 'grade5')
+LAYOUTS = ('grade', 'grade3', 'grade4', 'grade5', 'grade6', 'grade8')
 CODIGO = re.compile(r'\b([A-Z]{2,5})-(\d{3,})\b')
 CATALOGO_VIDEO = Path(__file__).parent / 'dados' / 'modelos_video.json'
 _catalogo: tuple[int, dict] = (0, {})
@@ -236,7 +235,6 @@ def criar_projeto(nome: str, tipo: str = 'webapp', descricao: str = '', prefixo:
             (pasta(slug) / sub).mkdir(parents=True, exist_ok=True)
         gravar_projeto(slug, projeto)
         (pasta(slug) / 'brief.md').write_text(f'# {projeto["nome"]}\n\n{descricao.strip()}\n', encoding='utf-8')
-        (pasta(slug) / 'diario.md').write_text(f'# Diário · {projeto["nome"]}\n', encoding='utf-8')
         brief = novo_no(slug, 'brief', titulo=projeto['nome'], status='rascunho', direcoes=[], pos={'x': 0, 'y': 0})
         novo_no(slug, 'tela', titulo=tela, pai=brief['id'], pos={'x': 460, 'y': 0})
     return ler_projeto(slug)
@@ -318,7 +316,7 @@ def rev(slug: str) -> str:
     # impl/: uma versão nova muda a pasta da imagem; impl.json (ou origem.json) diz quem faz, de qual vídeo e em que pé está
     impl = [*sorted((d / 'impl').glob('*')), *sorted((d / 'impl').glob('*/*/impl.json')), *sorted((d / 'impl').glob('*/*/origem.json')),
             *sorted((d / 'impl').glob('*/*/captura.png'))]
-    for f in [d / 'projeto.json', d / 'brief.md', d / 'diario.md', *sorted((d / 'nodes').glob('*.json')), *impl]:
+    for f in [d / 'projeto.json', d / 'brief.md', *sorted((d / 'nodes').glob('*.json')), *impl]:
         try:
             marcas.append(f'{f.relative_to(d)}:{f.stat().st_mtime_ns}')
         except FileNotFoundError:
@@ -344,7 +342,7 @@ def custos(slug: str, lista: list[dict] | None = None) -> dict:
     hoje = date.today().isoformat()
     total = dia = 0.0
     for no in lista if lista is not None else nos(slug):
-        if no.get('tipo') in ('imagem', 'video') and no.get('custo'):
+        if no.get('tipo') in ('imagem', 'video', 'ds') and no.get('custo'):
             total += no['custo']
             if (no.get('criado') or '').startswith(hoje) and not no.get('legado'):
                 dia += no['custo']
@@ -415,6 +413,47 @@ def arquivo_entrada(slug: str, cod: str) -> Path | None:
     no = ler_json(caminho_no(slug, cod))
     f = pasta(slug) / no['arquivo'] if no and no.get('arquivo') else None
     return f if f and f.exists() else None
+
+
+# ---------- as chaves de API (o valor nunca sai daqui: o app só sabe se existe e de onde vem) ----------
+CHAVES = {
+    'OPENROUTER_API_KEY': {'rotulo': 'OpenRouter', 'para': 'Gera as imagens e os vídeos', 'link': 'https://openrouter.ai/keys'},
+    'FAL_KEY': {'rotulo': 'fal.ai', 'para': 'Gera os modelos 3D (imagem → 3D)', 'link': 'https://fal.ai/dashboard/keys'},
+}
+ENV = RAIZ / '.env'
+
+
+def _tem_chave(arq: Path, nome: str) -> bool:
+    if not arq.exists():
+        return False
+    return any(l.strip().startswith(f'{nome}=') and l.split('=', 1)[1].strip().strip('"\'') for l in arq.read_text(encoding='utf-8').splitlines())
+
+
+def chaves() -> list[dict]:
+    """Na ordem em que os scripts procuram: o ambiente, o .env daqui e o ~/.env."""
+    out = []
+    for nome, c in CHAVES.items():
+        origem = 'ambiente' if os.environ.get(nome) else '.env' if _tem_chave(ENV, nome) else '~/.env' if _tem_chave(Path.home() / '.env', nome) else None
+        out.append({'nome': nome, **c, 'origem': origem})
+    return out
+
+
+def gravar_chave(nome: str, valor: str) -> None:
+    """Põe (ou tira, com valor vazio) a chave no .env daqui, mantendo o resto do arquivo. Só o dono lê o arquivo."""
+    if nome not in CHAVES:
+        raise ValueError('chave desconhecida')
+    valor = valor.strip()
+    if valor and not re.fullmatch(r'[\x21-\x7e]{1,1000}', valor):
+        raise ValueError('a chave tem caracteres inválidos')   # sem repetir o valor na mensagem
+    linhas = ENV.read_text(encoding='utf-8').splitlines() if ENV.exists() else []
+    linhas = [l for l in linhas if not l.strip().startswith(f'{nome}=')]
+    if valor:
+        linhas.append(f'{nome}={valor}')
+    tmp = ENV.with_name('.env.tmp')
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(linhas) + ('\n' if linhas else ''))
+    os.replace(tmp, ENV)
 
 
 CHROME = Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
@@ -533,7 +572,7 @@ def galho(todos: list[dict], id_: str) -> list[str]:
                 pai.setdefault(n['id'], ref['id'])
             elif n.get('tela'):
                 pai.setdefault(n['id'], n['tela'])
-        elif n['tipo'] in ('imagem', 'video') and n.get('pedido'):
+        elif n['tipo'] in ('imagem', 'video', 'ds') and n.get('pedido'):
             pai.setdefault(n['id'], n['pedido'])
     filhos: dict[str, list[str]] = {}
     for f, p in pai.items():
@@ -567,11 +606,3 @@ def restaurar_da_lixeira(slug: str, id_: str) -> dict:
             shutil.move(str(f), d / sub / f.name)
     shutil.rmtree(origem, ignore_errors=True)
     return ler_no(slug, id_)
-
-
-def anexar_diario(slug: str, texto: str) -> None:
-    arq = pasta(slug) / 'diario.md'
-    atual = arq.read_text(encoding='utf-8') if arq.exists() else ''
-    if f'\n## {date.today().isoformat()}' not in atual:
-        atual = atual.rstrip() + f'\n\n## {date.today().isoformat()}\n'
-    arq.write_text(atual.rstrip() + f'\n- {datetime.now():%H:%M} · {texto.strip()}\n', encoding='utf-8')

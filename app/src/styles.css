@@ -227,7 +227,7 @@ span.chip { cursor: default; }
 .imagem.ref .moldura { box-shadow: 0 0 0 calc(10px + (var(--longe, 1) - 1) * 10px) #e6ddff; }
 .imagem.ref.sel .moldura { box-shadow: 0 0 0 calc(10px + (var(--longe, 1) - 1) * 10px) #cbb8ff; }
 .no.imagem.ref::before {
-  content: 'Referência'; position: absolute; bottom: 100%; left: 0; z-index: 2; margin-bottom: calc(16px + (var(--longe, 1) - 1) * 10px);
+  content: 'Referência'; position: absolute; top: auto; bottom: 100%; left: 0; z-index: 2; margin-bottom: calc(16px + (var(--longe, 1) - 1) * 10px);
   padding: 3px 9px; border-radius: 7px; background: #7c5cff; color: #fff; font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
   transform: scale(var(--longe, 1)); transform-origin: bottom left; pointer-events: none; white-space: nowrap;
 }
@@ -447,16 +447,12 @@ span.chip { cursor: default; }
 }
 @keyframes entra { from { opacity: 0; translate: 10px 0; } }
 .painel-topo { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 10px; border-bottom: 1px solid var(--linha); }
-.abas { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--fundo); }
-.abas button { border: 0; background: transparent; padding: 5px 12px; border-radius: 8px; font-size: 13px; color: var(--tinta-2); }
-.abas button.on { background: var(--superficie); color: var(--tinta); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); font-weight: 500; }
 .brief-editor { flex: 1; resize: none; border: 0; outline: 0; padding: 18px 20px; font-family: var(--mono); font-size: 13px; line-height: 1.65; }
 .markdown { flex: 1; overflow: auto; padding: 8px 20px 20px; font-size: 13.5px; line-height: 1.6; }
 .markdown h2 { font-size: 12px; font-family: var(--mono); font-weight: 500; color: var(--tinta-3); margin: 18px 0 6px; }
 .markdown ul { padding-left: 18px; margin: 0; }
 .markdown li { margin: 4px 0; }
 .markdown code { font-family: var(--mono); font-size: 12px; background: var(--fundo); padding: 1px 5px; border-radius: 5px; }
-.vazio-painel { color: var(--tinta-3); padding: 20px; margin: 0; }
 
 /* home */
 .home { height: 100%; overflow: auto; padding: 40px clamp(16px, 5vw, 64px); }
@@ -563,7 +559,6 @@ span.chip { cursor: default; }
 /* ---------- HTML (impl/<imagem>/<versão>/) no canvas: a página roda dentro do quadro, sem capturar o mouse ---------- */
 .no.site iframe { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border: 0; background: transparent; pointer-events: none; }
 .no.site .foto-pagina { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.no.site .foto-pagina.sem-foto { opacity: 0.45; filter: grayscale(0.4); }
 .no.site .marca.play { background: var(--cor-site); }
 /* com prévia: o andamento vira uma faixa por cima da página que roda no quadro */
 .obra-painel.sobre { inset: auto 0 0 0; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 4px 8px; padding: 8px 10px 22px;
@@ -640,7 +635,8 @@ span.chip { cursor: default; }
 .react-flow__node:hover .abrir-pagina.ico { opacity: 1; translate: 0 0; }
 
 /* topo: botões com rótulo */
-.topo .ico.rot { width: auto; display: inline-flex; gap: 7px; padding: 0 12px 0 10px; font-size: 13px; color: var(--tinta-2); white-space: nowrap; }
+.topo .ico.rot, .home-topo .ico.rot { width: auto; display: inline-flex; gap: 7px; padding: 0 12px 0 10px; font-size: 13px; color: var(--tinta-2); white-space: nowrap; }
+.home-topo .ico.rot { height: 36px; border-radius: 11px; background: var(--superficie); box-shadow: var(--sombra); border: 1px solid var(--linha); }
 .topo .ico.rot.on { color: var(--acento); }
 @media (max-width: 820px) { .topo .ico.rot { padding: 0; width: 36px; justify-content: center; } .topo .ico.rot span { display: none; } }
 
@@ -686,3 +682,48 @@ span.chip { cursor: default; }
 .no.pedido-ponto .ponto { color: #7c5cff; }
 .no.pedido-ponto.fechado { width: auto; min-width: 26px; padding: 0 6px; border-radius: 99px; background: #7c5cff; border-color: #7c5cff; }
 .no.pedido-ponto.fechado .ponto { color: #fff; font-family: var(--mono); font-size: 11px; font-weight: 600; }
+
+/* o chip em cima de cada cartão diz o que ele é, no estilo do da referência (acima): cor cheia e do mesmo tamanho na tela em
+   qualquer zoom. A ponta de cima fica no vão entre os cartões e ele cresce para baixo, sobre o próprio cartão: de longe não
+   invade o cartão de cima. Pedido, tela e brief à direita: à esquerda fica o código */
+.no.imagem::before, .no.pedido::before, .no.tela::before, .no.brief::before {
+  --chip: var(--cor-imagem); content: 'Imagem'; position: absolute; top: 0; left: 0; z-index: 2;
+  padding: 3px 9px; border-radius: 7px; font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; pointer-events: none;
+  background: var(--chip); color: #fff;
+  transform: translateY(-21px) scale(calc(var(--inv, 1) * var(--longe, 1))); transform-origin: top left;
+}
+.no.imagem.asset::before { --chip: var(--cor-asset); content: 'Asset'; }
+.no.imagem.video::before { --chip: var(--cor-video); content: 'Vídeo'; }
+.no.imagem.modelo::before { --chip: var(--cor-modelo); content: 'Modelo 3D'; }
+.no.imagem.site::before { --chip: var(--cor-site); content: 'Página'; }
+.no.pedido::before, .no.tela::before, .no.brief::before { left: auto; right: 0; transform-origin: top right; }
+.no.pedido::before { --chip: #7c5cff; content: 'Pedido'; }
+.no.tela::before { --chip: var(--tinta-2); content: 'Tela'; }
+.no.brief::before { --chip: var(--tinta); content: 'Brief'; }
+.pedido-pop .no.pedido::before { display: none; }
+
+/* o design system: destacado como a referência (painel opaco atrás e etiqueta grande em cima), na cor dele */
+.imagem.ds .moldura { --cor: #db2777; box-shadow: 0 0 0 calc(10px + (var(--longe, 1) - 1) * 10px) #fbdcea; }
+.imagem.ds.sel .moldura { box-shadow: 0 0 0 calc(10px + (var(--longe, 1) - 1) * 10px) #f5a9cc; }
+.no.imagem.ds::before {
+  /* na borda de cima, dentro do painel: empilhados na grade (vão de 28 px), não cobre a legenda do cartão de cima */
+  content: 'Design System'; top: 0; left: 12px; line-height: normal; background: #db2777;
+  transform: scale(var(--longe, 1)) translateY(-50%); transform-origin: top left;
+}
+.no.ds .quadro:hover .abrir-centro { opacity: 1; pointer-events: auto; }
+
+/* config: as chaves de API */
+.modal.config header { display: flex; align-items: center; gap: 8px; }
+.modal.config h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.chave { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--linha); }
+.chave p { margin: 0; font-size: 12px; }
+.chave-topo { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+.chave-topo a { display: grid; color: var(--tinta-3); }
+.chave-topo a:hover { color: var(--acento); }
+.chave-estado { margin-left: auto; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--tinta-2); background: var(--fundo); }
+.chave-estado.ok { color: var(--ok); background: #e5f7ed; }
+.chave-linha { display: flex; gap: 8px; margin-top: 2px; }
+.chave-linha input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border: 1px solid var(--linha); border-radius: 10px; outline: 0; font-family: var(--mono); font-size: 13px; background: var(--superficie); color: var(--tinta); }
+.chave-linha input:focus { border-color: var(--acento); }
+.chave-erro { margin: 0; font-size: 13px; color: #c62f35; }
+.chave-nota { margin: 0; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 12px; }
