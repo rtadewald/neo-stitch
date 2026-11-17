@@ -11,19 +11,44 @@ Contrato dos nós: .claude/skills/neo-stitch/modelo.md. Toda escrita passa por `
 """
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unicodedata
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, date
 from pathlib import Path
+
+if sys.platform == 'win32':   # o Windows não tem fcntl: a trava usa o msvcrt (1 byte no início do arquivo)
+    import msvcrt
+
+    def _travar(f) -> None:
+        f.seek(0)
+        while True:
+            try:
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                return
+            except OSError:
+                time.sleep(0.05)
+
+    def _destravar(f) -> None:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _travar(f) -> None:
+        fcntl.flock(f, fcntl.LOCK_EX)
+
+    def _destravar(f) -> None:
+        fcntl.flock(f, fcntl.LOCK_UN)
 
 RAIZ = Path(__file__).resolve().parent.parent
 PROJETOS = RAIZ / 'projects'
@@ -121,11 +146,11 @@ def travado(slug: str):
     """Trava exclusiva do projeto (servidor e scripts): ler → mudar → gravar sem corrida."""
     pasta(slug).mkdir(parents=True, exist_ok=True)
     with open(pasta(slug) / '.lock', 'w') as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        _travar(f)
         try:
             yield
         finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+            _destravar(f)
 
 
 # ---------- projetos ----------
@@ -456,7 +481,17 @@ def gravar_chave(nome: str, valor: str) -> None:
     os.replace(tmp, ENV)
 
 
-CHROME = Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+def _achar_chrome() -> Path:
+    if sys.platform == 'win32':
+        for base in (os.environ.get('PROGRAMFILES'), os.environ.get('PROGRAMFILES(X86)'), os.environ.get('LOCALAPPDATA')):
+            if base and (c := Path(base) / 'Google' / 'Chrome' / 'Application' / 'chrome.exe').exists():
+                return c
+    elif sys.platform != 'darwin':
+        return Path(shutil.which('google-chrome') or shutil.which('chromium') or '/usr/bin/google-chrome')
+    return Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+
+
+CHROME = _achar_chrome()
 
 
 def captura_velha(d: Path) -> bool:
@@ -491,7 +526,12 @@ def capturar(d: Path, url: str) -> bool:
     if not tmp.exists() or tmp.stat().st_size < 1000:
         tmp.unlink(missing_ok=True)
         return False
-    subprocess.run(['sips', '-Z', '1280', str(tmp)], capture_output=True)   # o cartão tem 720 px: 1280 basta
+    if shutil.which('sips'):
+        subprocess.run(['sips', '-Z', '1280', str(tmp)], capture_output=True)   # o cartão tem 720 px: 1280 basta
+    else:
+        menor = tmp.with_name('.captura-menor.png')
+        if converter_imagem(tmp, menor, lado=1280):
+            os.replace(menor, tmp)
     os.replace(tmp, d / 'captura.png')
     return True
 
@@ -518,25 +558,48 @@ def ouvinte_vivo() -> bool:
 def enfileirar(slug: str, id_: str, acao: str) -> None:
     linha = json.dumps({'ts': agora(), 'projeto': slug, 'id': id_, 'acao': acao}, ensure_ascii=False)
     with open(FILA, 'a', encoding='utf-8') as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        _travar(f)
         f.write(linha + '\n')
-        fcntl.flock(f, fcntl.LOCK_UN)
+        _destravar(f)
 
 
 # ---------- arquivos ----------
 
+def converter_imagem(origem: Path, destino: Path, lado: int | None = None) -> bool:
+    """Fora do macOS (sem o sips): converte/reduz com o ffmpeg. O formato sai da extensão do destino; `lado` é o maior lado."""
+    if not shutil.which('ffmpeg'):
+        return False
+    cmd = ['ffmpeg', '-v', 'error', '-y', '-i', str(origem)]
+    if lado:
+        cmd += ['-vf', f"scale=w='min({lado},iw)':h='min({lado},ih)':force_original_aspect_ratio=decrease"]
+    if destino.suffix.lower() in ('.jpg', '.jpeg'):
+        cmd += ['-q:v', '3']
+    cmd += ['-frames:v', '1', '-update', '1', str(destino)]
+    return subprocess.run(cmd, capture_output=True).returncode == 0 and destino.exists()
+
+
 def miniatura(origem: Path, destino: Path, lado: int = 640) -> None:
-    """JPEG reduzido com o sips do macOS (sem dependências)."""
+    """JPEG reduzido com o sips do macOS (sem dependências); no Windows/Linux, com o ffmpeg (ou uma cópia, sem ele)."""
     destino.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(['sips', '-s', 'format', 'jpeg', '-s', 'formatOptions', '82', '-Z', str(lado), str(origem),
-                    '--out', str(destino)], capture_output=True, check=True)
+    if shutil.which('sips'):
+        subprocess.run(['sips', '-s', 'format', 'jpeg', '-s', 'formatOptions', '82', '-Z', str(lado), str(origem),
+                        '--out', str(destino)], capture_output=True, check=True)
+    elif not converter_imagem(origem, destino, lado):
+        shutil.copyfile(origem, destino)
 
 
 def medidas(arquivo: Path) -> tuple[int, int] | None:
-    r = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', str(arquivo)], capture_output=True, text=True)
-    w = re.search(r'pixelWidth:\s*(\d+)', r.stdout)
-    h = re.search(r'pixelHeight:\s*(\d+)', r.stdout)
-    return (int(w.group(1)), int(h.group(1))) if w and h else None
+    if shutil.which('sips'):
+        r = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', str(arquivo)], capture_output=True, text=True)
+        w = re.search(r'pixelWidth:\s*(\d+)', r.stdout)
+        h = re.search(r'pixelHeight:\s*(\d+)', r.stdout)
+        return (int(w.group(1)), int(h.group(1))) if w and h else None
+    if shutil.which('ffprobe'):   # Windows/Linux
+        r = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+                            '-of', 'csv=p=0:s=x', str(arquivo)], capture_output=True, text=True)
+        m = re.search(r'(\d+)x(\d+)', r.stdout)
+        return (int(m.group(1)), int(m.group(2))) if m else None
+    return None
 
 
 def para_lixeira(slug: str, id_: str, junto: list[str] | None = None) -> None:

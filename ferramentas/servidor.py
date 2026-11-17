@@ -33,8 +33,10 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -49,6 +51,7 @@ import base as B  # noqa: E402
 
 PORTA = 8730
 DIST = B.RAIZ / 'app' / 'dist'
+NPM = shutil.which('npm') or 'npm'   # no Windows é npm.cmd
 ID = r'([A-Z]{2,5}-\d{3,})'
 SLUG = r'([a-z0-9][a-z0-9-]*)'
 # o que o app pode mudar em cada tipo de nó. Todo nó: 'pos', 'recolhido' (o galho fecha), 'escondidos' (só esses filhos
@@ -141,7 +144,10 @@ def abrir_pasta_impl(h, m, corpo):
     d = B.pasta(slug) / 'impl' / img / v
     if not d.is_dir():
         raise Erro('A pasta desta versão não existe.')
-    subprocess.run(['open', str(d)], check=False)
+    if sys.platform == 'win32':
+        os.startfile(d)   # o Explorer, na máquina do usuário
+    else:
+        subprocess.run(['open' if sys.platform == 'darwin' else 'xdg-open', str(d)], check=False)
     return {'ok': True}
 
 
@@ -311,7 +317,7 @@ def criar_no(h, m, corpo):
                 raise Erro('Um pedido precisa de uma tela ou de imagens de entrada.')
             extra = {'tela': tela, 'entradas': entradas}
         campos = limpar_campos(tipo, {k: v for k, v in corpo.items() if k not in ('tipo', 'entradas', 'tela')})
-        return B.novo_no(slug, tipo, **extra, **campos)
+        return B.novo_no(slug, tipo, **{**campos, **extra})   # `extra` vence: o app manda `titulo` da tela nos dois
 
 
 def tela_de(existentes: dict, id_: str | None, fundo: int = 0) -> str | None:
@@ -598,8 +604,8 @@ def garantir_build() -> None:
     print('app/dist ausente ou desatualizado: compilando o app (npm run build)…', flush=True)
     try:
         if not (app / 'node_modules').is_dir():
-            subprocess.run(['npm', '--prefix', str(app), 'install'], check=True)
-        subprocess.run(['npm', '--prefix', str(app), 'run', 'build'], check=True, capture_output=True)
+            subprocess.run([NPM, '--prefix', str(app), 'install'], check=True)
+        subprocess.run([NPM, '--prefix', str(app), 'run', 'build'], check=True, capture_output=True)
     except (OSError, subprocess.CalledProcessError) as e:
         print(f'AVISO: não consegui compilar o app ({e}). Rode `npm --prefix app install && npm --prefix app run build`.',
               flush=True)

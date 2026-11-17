@@ -55,7 +55,11 @@ def cmd_ds(a):
     # a cópia vem antes da trava (o app escreve ao mesmo tempo); no APFS é um clone, sem gastar disco
     (pasta / 'ds').mkdir(exist_ok=True)
     tmp = pasta / 'ds' / f'.novo-{os.getpid()}'
-    if subprocess.run(['cp', '-cR', str(origem), str(tmp)], capture_output=True).returncode:
+    try:
+        clonou = subprocess.run(['cp', '-cR', str(origem), str(tmp)], capture_output=True).returncode == 0
+    except OSError:   # Windows: sem o cp
+        clonou = False
+    if not clonou:
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.copytree(origem, tmp)
     with B.travado(a.slug):
