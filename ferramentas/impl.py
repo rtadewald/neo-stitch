@@ -242,9 +242,11 @@ def cmd_asset(a):
         arq = pasta / 'images' / f"{img['id']}.png"
         if origem.suffix.lower() == '.png':
             shutil.copyfile(origem, arq)
-        else:  # só biblioteca padrão: o sips do macOS converte
+        elif shutil.which('sips'):  # só biblioteca padrão: o sips do macOS converte
             import subprocess  # noqa: PLC0415
             subprocess.run(['sips', '-s', 'format', 'png', str(origem), '--out', str(arq)], capture_output=True, check=True)
+        elif not B.converter_imagem(origem, arq):  # Windows/Linux: o ffmpeg
+            sys.exit(f'{origem.name}: para converter em PNG instale o ffmpeg (ou envie um .png)')
         B.miniatura(arq, pasta / 'thumbs' / f"{img['id']}.jpg")
         larg, alt = B.medidas(arq) or (None, None)
         img.update({'arquivo': f"images/{img['id']}.png", 'thumb': f"thumbs/{img['id']}.jpg", 'largura': larg, 'altura': alt})
